@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 declare_id!("3xQjRQauFtSbMJHuUbrTzzYVP7h4W163BYT8zZxNEu2m");
+mod constants;
 
 #[program]
 pub mod pixl {
