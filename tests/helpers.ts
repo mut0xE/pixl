@@ -4,14 +4,22 @@ import { randomInt } from "crypto";
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { resolve } from "path";
-import { PublicKey, Keypair, SendTransactionError } from "@solana/web3.js";
+import {
+  PublicKey,
+  Keypair,
+  SendTransactionError,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { config as loadEnv } from "dotenv";
 import { expect } from "chai";
 import type { Pixl } from "../target/types/pixl";
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../packages/shared";
 import {
   deriveCanvasPda,
   deriveGamePda,
   derivePlayerPda,
+  deriveSeasonProfilePda,
   deriveSeasonPda,
   deriveSeasonStatsPda,
 } from "../packages/sdk";
@@ -83,12 +91,21 @@ export function deriveSeasonAccounts(
 ) {
   const [seasonPda] = deriveSeasonPda(programId, seasonId);
   const [seasonStatsPda] = deriveSeasonStatsPda(programId, seasonPda);
-  const [canvasPda] = deriveCanvasPda(programId, seasonPda);
 
   return {
     seasonPda,
     seasonStatsPda,
-    canvasPda,
+  };
+}
+
+export function deriveSeasonStatsAccount(
+  programId: anchor.web3.PublicKey,
+  season: anchor.web3.PublicKey
+) {
+  const [seasonStatsPda] = deriveSeasonStatsPda(programId, season);
+
+  return {
+    seasonStatsPda,
   };
 }
 
@@ -108,6 +125,18 @@ export function derivePlayerAccount(
   };
 }
 
+export function deriveSeasonProfileAccount(
+  programId: anchor.web3.PublicKey,
+  season: anchor.web3.PublicKey,
+  wallet: anchor.web3.PublicKey
+) {
+  const [seasonProfilePda] = deriveSeasonProfilePda(programId, season, wallet);
+
+  return {
+    seasonProfilePda,
+  };
+}
+
 export function buildStartSeasonArgs(overrides: Partial<any> = {}) {
   return {
     seasonId: uniqueSeasonId(),
@@ -121,6 +150,204 @@ export function buildStartSeasonArgs(overrides: Partial<any> = {}) {
     endTime: new anchor.BN(1_700_000_600),
     ...overrides,
   };
+}
+
+export async function createCanvasAccount(
+  provider: anchor.AnchorProvider,
+  program: anchor.Program<Pixl>,
+  canvasKeypair: Keypair,
+  width = CANVAS_WIDTH,
+  height = CANVAS_HEIGHT
+) {
+  const canvasSpace = getCanvasAccountSpace(width, height);
+  const lamports = await provider.connection.getMinimumBalanceForRentExemption(
+    canvasSpace
+  );
+
+  const transaction = new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: provider.wallet.publicKey,
+      newAccountPubkey: canvasKeypair.publicKey,
+      space: canvasSpace,
+      lamports,
+      programId: program.programId,
+    })
+  );
+
+  await provider.sendAndConfirm(transaction, [canvasKeypair]);
+}
+
+export function getCanvasAccountSpace(width: number, height: number) {
+  return 8 + 32 + 2 + 2 + 4 + width * height + 1 + 1;
+}
+
+export function decodeCanvasAccount(data: Buffer) {
+  let offset = 8;
+
+  const season = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const width = data.readUInt16LE(offset);
+  offset += 2;
+
+  const height = data.readUInt16LE(offset);
+  offset += 2;
+
+  const pixelCount = data.readUInt32LE(offset);
+  offset += 4;
+
+  const pixels = [...data.subarray(offset, offset + pixelCount)];
+  offset += pixelCount;
+
+  const frozen = data[offset] === 1;
+  offset += 1;
+
+  const bump = data[offset];
+
+  return {
+    season,
+    width,
+    height,
+    pixels,
+    frozen,
+    bump,
+  };
+}
+
+export function logNamedPdas(
+  label: string,
+  pdas: Record<string, { publicKey: PublicKey; bump?: number }>
+) {
+  console.log(`\n[${label}]`);
+  for (const [name, details] of Object.entries(pdas)) {
+    const bumpSuffix =
+      details.bump === undefined ? "" : ` (bump: ${details.bump})`;
+    console.log(`  ${name}: ${details.publicKey.toBase58()}${bumpSuffix}`);
+  }
+}
+
+export function logCanvasAccountDetails(
+  label: string,
+  canvasPublicKey: PublicKey,
+  canvasAccount: ReturnType<typeof decodeCanvasAccount>
+) {
+  console.log(`\n[${label}]`);
+  console.log(`  canvasAccount: ${canvasPublicKey.toBase58()}`);
+  console.log(`  season: ${canvasAccount.season.toBase58()}`);
+  console.log(`  width: ${canvasAccount.width}`);
+  console.log(`  height: ${canvasAccount.height}`);
+  console.log(`  pixelCount: ${canvasAccount.pixels.length}`);
+  console.log(`  frozen: ${canvasAccount.frozen}`);
+  console.log(`  bump: ${canvasAccount.bump}`);
+  console.log(`  firstPixel: ${canvasAccount.pixels[0]}`);
+  console.log(
+    `  lastPixel: ${canvasAccount.pixels[canvasAccount.pixels.length - 1]}`
+  );
+}
+
+export async function createStartSeasonTransaction(
+  provider: anchor.AnchorProvider,
+  program: anchor.Program<Pixl>,
+  params: {
+    authority?: PublicKey;
+    game: PublicKey;
+    season: PublicKey;
+    seasonStats: PublicKey;
+    canvasKeypair: Keypair;
+    args: any;
+  }
+) {
+  const width = params.args.canvasWidth ?? CANVAS_WIDTH;
+  const height = params.args.canvasHeight ?? CANVAS_HEIGHT;
+  const canvasSpace = getCanvasAccountSpace(width, height);
+  const lamports = await provider.connection.getMinimumBalanceForRentExemption(
+    canvasSpace
+  );
+  const authority = params.authority ?? provider.wallet.publicKey;
+  const [gameDerivedPda, gameBump] = deriveGamePda(program.programId);
+  const [seasonDerivedPda, seasonBump] = deriveSeasonPda(
+    program.programId,
+    params.args.seasonId
+  );
+  const [seasonStatsDerivedPda, seasonStatsBump] = deriveSeasonStatsPda(
+    program.programId,
+    params.season
+  );
+  const [expectedCanvasPda, expectedCanvasBump] = deriveCanvasPda(
+    program.programId,
+    params.season
+  );
+  const transaction = new Transaction();
+
+  logNamedPdas("startSeason named addresses", {
+    gamePda: { publicKey: params.game, bump: gameBump },
+    derivedGamePda: { publicKey: gameDerivedPda, bump: gameBump },
+    seasonPda: { publicKey: params.season, bump: seasonBump },
+    derivedSeasonPda: { publicKey: seasonDerivedPda, bump: seasonBump },
+    seasonStatsPda: {
+      publicKey: params.seasonStats,
+      bump: seasonStatsBump,
+    },
+    derivedSeasonStatsPda: {
+      publicKey: seasonStatsDerivedPda,
+      bump: seasonStatsBump,
+    },
+    expectedCanvasPda: {
+      publicKey: expectedCanvasPda,
+      bump: expectedCanvasBump,
+    },
+    providedCanvasAccount: { publicKey: params.canvasKeypair.publicKey },
+    authority: { publicKey: authority },
+  });
+  console.log(
+    `  canvasAccountSpace: ${canvasSpace} bytes, rentLamports: ${lamports}, dimensions: ${width}x${height}`
+  );
+
+  transaction.add(
+    SystemProgram.createAccount({
+      fromPubkey: provider.wallet.publicKey,
+      newAccountPubkey: params.canvasKeypair.publicKey,
+      space: canvasSpace,
+      lamports,
+      programId: program.programId,
+    })
+  );
+
+  transaction.add(
+    await program.methods
+      .startSeason(params.args)
+      .accounts({
+        authority,
+        //@ts-ignore
+        game: params.game,
+        season: params.season,
+        seasonStats: params.seasonStats,
+        canvas: params.canvasKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+  );
+
+  return transaction;
+}
+
+export async function endSeason(
+  program: anchor.Program<Pixl>,
+  game: PublicKey,
+  season: PublicKey
+) {
+  const provider = program.provider as anchor.AnchorProvider;
+  const methods = program.methods as any;
+
+  return methods
+    .endSeason()
+    .accounts({
+      authority: provider.wallet.publicKey,
+      //@ts-ignore
+      game,
+      season,
+    })
+    .rpc();
 }
 
 export async function ensureGameInitialized() {
@@ -165,16 +392,20 @@ export async function getAnchorTestError(
       error !== null &&
       "error" in error &&
       typeof (error as { error?: unknown }).error === "object" &&
-      (error as { error?: { errorCode?: unknown; errorMessage?: unknown } }).error !==
-        null &&
+      (error as { error?: { errorCode?: unknown; errorMessage?: unknown } })
+        .error !== null &&
       "errorCode" in
-        ((error as {
-          error?: { errorCode?: unknown; errorMessage?: unknown };
-        }).error ?? {}) &&
+        ((
+          error as {
+            error?: { errorCode?: unknown; errorMessage?: unknown };
+          }
+        ).error ?? {}) &&
       "errorMessage" in
-        ((error as {
-          error?: { errorCode?: unknown; errorMessage?: unknown };
-        }).error ?? {}))
+        ((
+          error as {
+            error?: { errorCode?: unknown; errorMessage?: unknown };
+          }
+        ).error ?? {}))
       ? (error as AnchorError)
       : null;
   const anchorError = directAnchorError ?? AnchorError.parse(logs);

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        CANVAS_HEIGHT, CANVAS_PIXELS, CANVAS_SEED, CANVAS_WIDTH, DEFAULT_COLOR_INDEX, GAME_SEED,
+        CANVAS_HEIGHT, CANVAS_WIDTH, DEFAULT_COLOR_INDEX, GAME_SEED, MAX_CANVAS_PIXELS,
         MAX_DESCRIPTION_LENGTH, MAX_PALETTE_COLORS, MAX_REFERENCE_URI_LENGTH, MAX_TITLE_LENGTH,
         SEASON_SEED, SEASON_STATS_SEED,
     },
@@ -56,14 +56,14 @@ pub struct StartSeason<'info> {
     )]
     pub season_stats: Account<'info, SeasonStats>,
 
+    /// CHECK: This account is pre-created client-side by the authority, must be
+    /// owned by this program, large enough for the requested canvas dimensions,
+    /// and still uninitialized when this instruction runs.
     #[account(
-        init,
-        payer = authority,
-        space = Canvas::SPACE,
-        seeds = [CANVAS_SEED, season.key().as_ref()],
-        bump
+        mut,
+        owner = crate::ID,
     )]
-    pub canvas: Account<'info, Canvas>,
+    pub canvas: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -95,11 +95,15 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
     let height = args.canvas_height.unwrap_or(CANVAS_HEIGHT);
     let total_pixels = calculate_canvas_pixels(width, height)?;
 
+    require!(
+        ctx.accounts.canvas.data_len() >= canvas_account_space_for(total_pixels),
+        PixlError::InvalidAccountState
+    );
+
     let now = Clock::get()?.unix_timestamp;
     let game = &mut ctx.accounts.game;
     let season = &mut ctx.accounts.season;
     let season_stats = &mut ctx.accounts.season_stats;
-    let canvas = &mut ctx.accounts.canvas;
 
     require!(
         game.current_season == Pubkey::default(),
@@ -126,14 +130,21 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
         bump: ctx.bumps.season_stats,
     });
 
-    canvas.set_inner(Canvas {
-        season: season.key(),
+    {
+        let canvas_data = ctx.accounts.canvas.try_borrow_data()?;
+        require!(
+            canvas_data[..8].iter().all(|byte| *byte == 0),
+            PixlError::InvalidAccountState
+        );
+    }
+
+    initialize_canvas_account(
+        &ctx.accounts.canvas,
+        season.key(),
         width,
         height,
-        pixels: vec![DEFAULT_COLOR_INDEX; total_pixels],
-        frozen: false,
-        bump: ctx.bumps.canvas,
-    });
+        total_pixels,
+    )?;
 
     game.current_season = season.key();
     game.current_season_id = args.season_id;
@@ -151,9 +162,9 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
 
     emit!(CanvasInitialized {
         season: season.key(),
-        canvas: canvas.key(),
-        width: canvas.width,
-        height: canvas.height,
+        canvas: ctx.accounts.canvas.key(),
+        width,
+        height,
         authority: ctx.accounts.authority.key(),
         timestamp: now,
     });
@@ -173,9 +184,46 @@ fn calculate_canvas_pixels(width: u16, height: u16) -> Result<usize> {
         .ok_or(PixlError::MathOverflow)?;
 
     require!(
-        total_pixels <= CANVAS_PIXELS,
+        total_pixels <= MAX_CANVAS_PIXELS,
         PixlError::InvalidCanvasDimensions
     );
 
     Ok(total_pixels)
+}
+
+fn canvas_account_space_for(total_pixels: usize) -> usize {
+    8 + 32 + 2 + 2 + 4 + total_pixels + 1 + 1
+}
+
+fn initialize_canvas_account(
+    canvas: &UncheckedAccount,
+    season: Pubkey,
+    width: u16,
+    height: u16,
+    total_pixels: usize,
+) -> Result<()> {
+    let mut data = canvas.try_borrow_mut_data()?;
+    let mut cursor = &mut data[..];
+
+    cursor[..8].copy_from_slice(&Canvas::DISCRIMINATOR);
+    cursor = &mut cursor[8..];
+
+    cursor[..32].copy_from_slice(season.as_ref());
+    cursor = &mut cursor[32..];
+
+    cursor[..2].copy_from_slice(&width.to_le_bytes());
+    cursor = &mut cursor[2..];
+
+    cursor[..2].copy_from_slice(&height.to_le_bytes());
+    cursor = &mut cursor[2..];
+
+    cursor[..4].copy_from_slice(&(total_pixels as u32).to_le_bytes());
+    cursor = &mut cursor[4..];
+
+    let (pixels, rest) = cursor.split_at_mut(total_pixels);
+    pixels.fill(DEFAULT_COLOR_INDEX);
+    rest[0] = 0;
+    rest[1] = 0;
+
+    Ok(())
 }

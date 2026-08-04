@@ -26,6 +26,14 @@ pub mod pixl {
         instructions::init_player::handle_init_player(ctx)
     }
 
+    pub fn end_season(ctx: Context<EndSeason>) -> Result<()> {
+        instructions::end_season::handle_end_season(ctx)
+    }
+
+    pub fn join_season(ctx: Context<JoinSeason>) -> Result<()> {
+        instructions::join_season::handle_join_season(ctx)
+    }
+
     pub fn start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> Result<()> {
         instructions::start_season::handle_start_season(ctx, args)
     }

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    CANVAS_PIXELS, MAX_DESCRIPTION_LENGTH, MAX_PALETTE_COLORS, MAX_REFERENCE_URI_LENGTH,
+    MAX_CANVAS_PIXELS, MAX_DESCRIPTION_LENGTH, MAX_PALETTE_COLORS, MAX_REFERENCE_URI_LENGTH,
     MAX_TITLE_LENGTH,
 };
 
@@ -50,7 +50,7 @@ pub struct Canvas {
     pub season: Pubkey,
     pub width: u16,
     pub height: u16,
-    #[max_len(CANVAS_PIXELS)]
+    #[max_len(MAX_CANVAS_PIXELS)]
     pub pixels: Vec<u8>,
     pub frozen: bool,
     pub bump: u8,

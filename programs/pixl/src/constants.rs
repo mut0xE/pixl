@@ -1,13 +1,12 @@
 pub const GAME_SEED: &[u8] = b"game";
 pub const SEASON_SEED: &[u8] = b"season";
-pub const CANVAS_SEED: &[u8] = b"canvas";
 pub const SEASON_STATS_SEED: &[u8] = b"season_stats";
 pub const PLAYER_SEED: &[u8] = b"player";
 pub const SEASON_PROFILE_SEED: &[u8] = b"season_profile";
 
-pub const CANVAS_WIDTH: u16 = 100;
-pub const CANVAS_HEIGHT: u16 = 100;
-pub const CANVAS_PIXELS: usize = 10_000;
+pub const CANVAS_WIDTH: u16 = 512;
+pub const CANVAS_HEIGHT: u16 = 512;
+pub const MAX_CANVAS_PIXELS: usize = 1024 * 1024;
 pub const DEFAULT_COLOR_INDEX: u8 = 0;
 pub const MAX_PALETTE_COLORS: usize = 64;
 pub const MAX_TITLE_LENGTH: usize = 64;
