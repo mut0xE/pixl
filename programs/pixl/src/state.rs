@@ -5,7 +5,7 @@ use crate::constants::{
     MAX_TITLE_LENGTH,
 };
 
-const DISCRIMINATOR_SIZE: usize = 8;
+pub const DISCRIMINATOR_SIZE: usize = 8;
 
 #[account]
 #[derive(InitSpace)]
