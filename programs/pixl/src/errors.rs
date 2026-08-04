@@ -12,8 +12,8 @@ pub enum PixlError {
     InvalidTitle,
     #[msg("The provided season description is invalid.")]
     InvalidDescription,
-    #[msg("The provided blueprint reference is invalid.")]
-    InvalidBlueprintReference,
+    #[msg("The provided image reference is invalid.")]
+    InvalidImageReference,
     #[msg("The provided palette is invalid.")]
     InvalidPalette,
     #[msg("The provided canvas dimensions are invalid.")]
@@ -24,6 +24,8 @@ pub enum PixlError {
     InvalidColor,
     #[msg("The season is not active.")]
     SeasonNotActive,
+    #[msg("A season is already active.")]
+    SeasonAlreadyActive,
     #[msg("The season has already been completed.")]
     SeasonAlreadyCompleted,
     #[msg("The canvas is frozen.")]

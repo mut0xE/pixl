@@ -31,7 +31,7 @@ pub struct InitGame<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<InitGame>) -> Result<()> {
+pub fn handle_init_game(ctx: Context<InitGame>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let game = &mut ctx.accounts.game;
 

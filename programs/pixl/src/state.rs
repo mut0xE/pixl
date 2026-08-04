@@ -33,8 +33,7 @@ pub struct Season {
     #[max_len(MAX_PALETTE_COLORS)]
     pub palette: Vec<u32>,
     #[max_len(MAX_REFERENCE_URI_LENGTH)]
-    pub blueprint_uri: String,
-    pub blueprint_hash: [u8; 32],
+    pub image_uri: String,
     pub start_time: i64,
     pub end_time: i64,
     pub completed: bool,

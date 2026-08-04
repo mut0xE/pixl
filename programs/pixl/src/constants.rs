@@ -5,9 +5,9 @@ pub const SEASON_STATS_SEED: &[u8] = b"season_stats";
 pub const PLAYER_SEED: &[u8] = b"player";
 pub const SEASON_PROFILE_SEED: &[u8] = b"season_profile";
 
-pub const CANVAS_WIDTH: u16 = 256;
-pub const CANVAS_HEIGHT: u16 = 256;
-pub const CANVAS_PIXELS: usize = 65_536;
+pub const CANVAS_WIDTH: u16 = 100;
+pub const CANVAS_HEIGHT: u16 = 100;
+pub const CANVAS_PIXELS: usize = 10_000;
 pub const DEFAULT_COLOR_INDEX: u8 = 0;
 pub const MAX_PALETTE_COLORS: usize = 64;
 pub const MAX_TITLE_LENGTH: usize = 64;

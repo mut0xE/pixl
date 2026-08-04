@@ -5,9 +5,9 @@ export const SEASON_STATS_SEED = "season_stats" as const;
 export const PLAYER_SEED = "player" as const;
 export const SEASON_PROFILE_SEED = "season_profile" as const;
 
-export const CANVAS_WIDTH = 256 as const;
-export const CANVAS_HEIGHT = 256 as const;
-export const CANVAS_PIXELS = 65_536 as const;
+export const CANVAS_WIDTH = 100 as const;
+export const CANVAS_HEIGHT = 100 as const;
+export const CANVAS_PIXELS = 10_000 as const;
 export const DEFAULT_COLOR_INDEX = 0 as const;
 export const MAX_PALETTE_COLORS = 64 as const;
 export const MAX_TITLE_LENGTH = 64 as const;

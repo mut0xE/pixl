@@ -19,6 +19,14 @@ pub mod pixl {
     use super::*;
 
     pub fn init_game(ctx: Context<InitGame>) -> Result<()> {
-        instructions::init_game::handle(ctx)
+        instructions::init_game::handle_init_game(ctx)
+    }
+
+    pub fn init_player(ctx: Context<InitPlayer>) -> Result<()> {
+        instructions::init_player::handle_init_player(ctx)
+    }
+
+    pub fn start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> Result<()> {
+        instructions::start_season::handle_start_season(ctx, args)
     }
 }
