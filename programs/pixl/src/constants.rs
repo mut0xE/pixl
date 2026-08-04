@@ -13,5 +13,6 @@ pub const MAX_PALETTE_COLORS: usize = 64;
 pub const MAX_TITLE_LENGTH: usize = 64;
 pub const MAX_DESCRIPTION_LENGTH: usize = 256;
 pub const MAX_REFERENCE_LENGTH: usize = 200;
+pub const MAX_REFERENCE_URI_LENGTH: usize = MAX_REFERENCE_LENGTH;
 pub const DEFAULT_MAX_ENERGY: u8 = 6;
 pub const DEFAULT_ENERGY_COOLDOWN_SECONDS: i64 = 30;
