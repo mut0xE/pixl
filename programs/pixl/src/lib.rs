@@ -37,4 +37,13 @@ pub mod pixl {
     pub fn start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> Result<()> {
         instructions::start_season::handle_start_season(ctx, args)
     }
+
+    pub fn paint_pixel(
+        ctx: Context<PaintPixel>,
+        x: u16,
+        y: u16,
+        color_index: u8,
+    ) -> Result<()> {
+        instructions::paint_pixel::handle_paint_pixel(ctx, x, y, color_index)
+    }
 }

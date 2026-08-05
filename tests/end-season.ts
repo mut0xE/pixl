@@ -18,6 +18,7 @@ describe("pixl end_season on solana", () => {
   const { provider, program, gamePda } = getTestContext();
   let seasonPda: anchor.web3.PublicKey;
   let seasonStatsPda: anchor.web3.PublicKey;
+  let canvasPda: anchor.web3.PublicKey;
 
   async function fundWallet(wallet: Keypair) {
     const signature = await provider.connection.requestAirdrop(
@@ -69,20 +70,24 @@ describe("pixl end_season on solana", () => {
       console.log("startSeason setup signature:", signature);
       seasonPda = accounts.seasonPda;
       seasonStatsPda = accounts.seasonStatsPda;
+      canvasPda = canvas.publicKey;
     } catch (error) {
       const game = (await program.account.game.fetch(gamePda)) as any;
       seasonPda = game.currentSeason;
       const season = (await program.account.season.fetch(seasonPda)) as any;
+      canvasPda = season.canvas;
 
       if (season.endTime.toNumber() <= currentUnixTime) {
-        const signature = await endSeason(program, gamePda, seasonPda);
+        const signature = await endSeason(program, gamePda, seasonPda, canvasPda);
         console.log("endSeason setup signature:", signature);
         const retrySignature = await provider.sendAndConfirm(transaction, [canvas]);
         console.log("startSeason setup signature:", retrySignature);
         seasonPda = accounts.seasonPda;
         seasonStatsPda = accounts.seasonStatsPda;
+        canvasPda = canvas.publicKey;
       } else {
         seasonStatsPda = accounts.seasonStatsPda;
+        canvasPda = canvas.publicKey;
       }
     }
   });
@@ -90,7 +95,7 @@ describe("pixl end_season on solana", () => {
   it("marks the season completed and clears the active game season", async () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    const signature = await endSeason(program, gamePda, seasonPda);
+    const signature = await endSeason(program, gamePda, seasonPda, canvasPda);
     console.log("endSeason signature:", signature);
 
     const [game, season] = (await Promise.all([

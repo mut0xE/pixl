@@ -20,6 +20,7 @@ describe("pixl join_season on solana", () => {
   const { provider, program, gamePda } = getTestContext();
   let activeSeasonPda: anchor.web3.PublicKey;
   let activeSeasonStatsPda: anchor.web3.PublicKey;
+  let activeCanvasPubkey: anchor.web3.PublicKey;
   let activeSeasonEndTime = 0;
 
   async function fundWallet(wallet: Keypair) {
@@ -88,9 +89,10 @@ describe("pixl join_season on solana", () => {
     if (
       game.currentSeason.toBase58() === anchor.web3.PublicKey.default.toBase58()
     ) {
-      const { seasonPda, seasonStatsPda } = await startSeason();
+      const { seasonPda, seasonStatsPda, canvas } = await startSeason();
       activeSeasonPda = seasonPda;
       activeSeasonStatsPda = seasonStatsPda;
+      activeCanvasPubkey = canvas.publicKey;
       return;
     }
 
@@ -98,18 +100,21 @@ describe("pixl join_season on solana", () => {
     const activeSeason = (await program.account.season.fetch(
       activeSeasonPda
     )) as any;
+    activeCanvasPubkey = activeSeason.canvas;
 
     if (activeSeason.endTime.toNumber() <= now) {
       const endSeasonSignature = await endSeason(
         program,
         gamePda,
-        activeSeasonPda
+        activeSeasonPda,
+        activeCanvasPubkey
       );
       console.log("endSeason setup signature:", endSeasonSignature);
 
-      const { seasonPda, seasonStatsPda } = await startSeason();
+      const { seasonPda, seasonStatsPda, canvas } = await startSeason();
       activeSeasonPda = seasonPda;
       activeSeasonStatsPda = seasonStatsPda;
+      activeCanvasPubkey = canvas.publicKey;
       return;
     }
 
@@ -119,6 +124,8 @@ describe("pixl join_season on solana", () => {
     console.log(
       "reusing active season:",
       activeSeasonPda.toBase58(),
+      "canvas:",
+      activeCanvasPubkey.toBase58(),
       "seasonStats:",
       activeSeasonStatsPda.toBase58()
     );

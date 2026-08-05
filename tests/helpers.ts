@@ -10,13 +10,13 @@ import {
   SendTransactionError,
   SystemProgram,
   Transaction,
+  AccountInfo,
 } from "@solana/web3.js";
 import { config as loadEnv } from "dotenv";
 import { expect } from "chai";
 import type { Pixl } from "../target/types/pixl";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../packages/shared";
 import {
-  deriveCanvasPda,
   deriveGamePda,
   derivePlayerPda,
   deriveSeasonProfilePda,
@@ -49,6 +49,10 @@ function resolveWalletPath() {
 }
 
 function buildProvider() {
+  const providerOptions = {
+    commitment: "confirmed",
+    preflightCommitment: "confirmed",
+  } as const;
   const walletKeypair = Keypair.fromSecretKey(
     Uint8Array.from(
       JSON.parse(readFileSync(resolveWalletPath(), "utf8")) as number[]
@@ -56,15 +60,11 @@ function buildProvider() {
   );
   const connection = new anchor.web3.Connection(
     resolveProviderUrl(),
-    anchor.AnchorProvider.defaultOptions().commitment
+    providerOptions.commitment
   );
   const wallet = new anchor.Wallet(walletKeypair);
 
-  return new anchor.AnchorProvider(
-    connection,
-    wallet,
-    anchor.AnchorProvider.defaultOptions()
-  );
+  return new anchor.AnchorProvider(connection, wallet, providerOptions);
 }
 
 export function getTestContext() {
@@ -178,7 +178,7 @@ export async function createCanvasAccount(
 }
 
 export function getCanvasAccountSpace(width: number, height: number) {
-  return 8 + 32 + 2 + 2 + 4 + width * height + 1 + 1;
+  return 8 + 32 + 2 + 2 + 4 + width * height + 1;
 }
 
 export function decodeCanvasAccount(data: Buffer) {
@@ -200,9 +200,6 @@ export function decodeCanvasAccount(data: Buffer) {
   offset += pixelCount;
 
   const frozen = data[offset] === 1;
-  offset += 1;
-
-  const bump = data[offset];
 
   return {
     season,
@@ -210,8 +207,39 @@ export function decodeCanvasAccount(data: Buffer) {
     height,
     pixels,
     frozen,
-    bump,
   };
+}
+
+export async function overwriteAccountOnLocalValidator(
+  connection: anchor.web3.Connection,
+  address: PublicKey,
+  mutate: (data: Buffer) => Buffer
+) {
+  const accountInfo = await connection.getAccountInfo(address);
+  expect(accountInfo).to.not.equal(null);
+
+  const updatedData = mutate(Buffer.from((accountInfo as AccountInfo<Buffer>).data));
+  const response = await (
+    connection as anchor.web3.Connection & {
+      _rpcRequest: (method: string, args: unknown[]) => Promise<{
+        error?: { message?: string };
+        result?: unknown;
+      }>;
+    }
+  )._rpcRequest("setAccount", [
+    address.toBase58(),
+    {
+      lamports: accountInfo!.lamports,
+      data: [updatedData.toString("base64"), "base64"],
+      owner: accountInfo!.owner.toBase58(),
+      executable: accountInfo!.executable,
+      rentEpoch: accountInfo!.rentEpoch,
+    },
+  ]);
+
+  if (response.error) {
+    throw new Error(response.error.message ?? "setAccount RPC failed");
+  }
 }
 
 export function logNamedPdas(
@@ -238,7 +266,6 @@ export function logCanvasAccountDetails(
   console.log(`  height: ${canvasAccount.height}`);
   console.log(`  pixelCount: ${canvasAccount.pixels.length}`);
   console.log(`  frozen: ${canvasAccount.frozen}`);
-  console.log(`  bump: ${canvasAccount.bump}`);
   console.log(`  firstPixel: ${canvasAccount.pixels[0]}`);
   console.log(
     `  lastPixel: ${canvasAccount.pixels[canvasAccount.pixels.length - 1]}`
@@ -273,10 +300,6 @@ export async function createStartSeasonTransaction(
     program.programId,
     params.season
   );
-  const [expectedCanvasPda, expectedCanvasBump] = deriveCanvasPda(
-    program.programId,
-    params.season
-  );
   const transaction = new Transaction();
 
   logNamedPdas("startSeason named addresses", {
@@ -292,11 +315,7 @@ export async function createStartSeasonTransaction(
       publicKey: seasonStatsDerivedPda,
       bump: seasonStatsBump,
     },
-    expectedCanvasPda: {
-      publicKey: expectedCanvasPda,
-      bump: expectedCanvasBump,
-    },
-    providedCanvasAccount: { publicKey: params.canvasKeypair.publicKey },
+    canvasAccount: { publicKey: params.canvasKeypair.publicKey },
     authority: { publicKey: authority },
   });
   console.log(
@@ -334,7 +353,8 @@ export async function createStartSeasonTransaction(
 export async function endSeason(
   program: anchor.Program<Pixl>,
   game: PublicKey,
-  season: PublicKey
+  season: PublicKey,
+  canvas: PublicKey
 ) {
   const provider = program.provider as anchor.AnchorProvider;
   const methods = program.methods as any;
@@ -346,6 +366,7 @@ export async function endSeason(
       //@ts-ignore
       game,
       season,
+      canvas,
     })
     .rpc();
 }

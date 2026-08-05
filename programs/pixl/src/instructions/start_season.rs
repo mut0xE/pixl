@@ -59,11 +59,8 @@ pub struct StartSeason<'info> {
     /// CHECK: This account is pre-created client-side by the authority, must be
     /// owned by this program, large enough for the requested canvas dimensions,
     /// and still uninitialized when this instruction runs.
-    #[account(
-        mut,
-        owner = crate::ID,
-    )]
-    pub canvas: UncheckedAccount<'info>,
+    #[account(zero)]
+    pub canvas: Account<'info, Canvas>,
 
     pub system_program: Program<'info, System>,
 }
@@ -94,9 +91,10 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
     let width = args.canvas_width.unwrap_or(CANVAS_WIDTH);
     let height = args.canvas_height.unwrap_or(CANVAS_HEIGHT);
     let total_pixels = calculate_canvas_pixels(width, height)?;
+    let canvas_info = ctx.accounts.canvas.to_account_info();
 
     require!(
-        ctx.accounts.canvas.data_len() >= canvas_account_space_for(total_pixels),
+        canvas_info.data_len() >= canvas_account_space_for(total_pixels),
         PixlError::InvalidAccountState
     );
 
@@ -112,6 +110,7 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
 
     season.set_inner(Season {
         game: game.key(),
+        canvas: ctx.accounts.canvas.key(),
         id: args.season_id,
         title: args.title.clone(),
         description: args.description,
@@ -131,20 +130,14 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
     });
 
     {
-        let canvas_data = ctx.accounts.canvas.try_borrow_data()?;
+        let canvas_data = canvas_info.try_borrow_data()?;
         require!(
             canvas_data[..8].iter().all(|byte| *byte == 0),
             PixlError::InvalidAccountState
         );
     }
 
-    initialize_canvas_account(
-        &ctx.accounts.canvas,
-        season.key(),
-        width,
-        height,
-        total_pixels,
-    )?;
+    initialize_canvas_account(&mut ctx.accounts.canvas, season.key(), width, height, total_pixels);
 
     game.current_season = season.key();
     game.current_season_id = args.season_id;
@@ -192,38 +185,21 @@ fn calculate_canvas_pixels(width: u16, height: u16) -> Result<usize> {
 }
 
 fn canvas_account_space_for(total_pixels: usize) -> usize {
-    8 + 32 + 2 + 2 + 4 + total_pixels + 1 + 1
+    8 + 32 + 2 + 2 + 4 + total_pixels + 1
 }
 
 fn initialize_canvas_account(
-    canvas: &UncheckedAccount,
+    canvas: &mut Account<Canvas>,
     season: Pubkey,
     width: u16,
     height: u16,
     total_pixels: usize,
-) -> Result<()> {
-    let mut data = canvas.try_borrow_mut_data()?;
-    let mut cursor = &mut data[..];
-
-    cursor[..8].copy_from_slice(&Canvas::DISCRIMINATOR);
-    cursor = &mut cursor[8..];
-
-    cursor[..32].copy_from_slice(season.as_ref());
-    cursor = &mut cursor[32..];
-
-    cursor[..2].copy_from_slice(&width.to_le_bytes());
-    cursor = &mut cursor[2..];
-
-    cursor[..2].copy_from_slice(&height.to_le_bytes());
-    cursor = &mut cursor[2..];
-
-    cursor[..4].copy_from_slice(&(total_pixels as u32).to_le_bytes());
-    cursor = &mut cursor[4..];
-
-    let (pixels, rest) = cursor.split_at_mut(total_pixels);
-    pixels.fill(DEFAULT_COLOR_INDEX);
-    rest[0] = 0;
-    rest[1] = 0;
-
-    Ok(())
+) {
+    canvas.set_inner(Canvas {
+        season,
+        width,
+        height,
+        pixels: vec![DEFAULT_COLOR_INDEX; total_pixels],
+        frozen: false,
+    });
 }
