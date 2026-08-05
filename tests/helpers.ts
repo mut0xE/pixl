@@ -25,6 +25,12 @@ import {
 } from "../packages/sdk";
 
 const pixlIdl = require("../target/idl/pixl.json");
+export const DELEGATION_PROGRAM_ID = new PublicKey(
+  "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+);
+export const LOCAL_MAGICBLOCK_VALIDATOR = new PublicKey(
+  "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+);
 
 loadEnv({ path: resolve(process.cwd(), ".env") });
 
@@ -40,6 +46,14 @@ function resolveProviderUrl() {
   return "http://127.0.0.1:8899";
 }
 
+function resolveRouterEndpoint() {
+  return process.env.ROUTER_ENDPOINT ?? "";
+}
+
+function resolveEphemeralProviderUrl() {
+  return process.env.EPHEMERAL_PROVIDER_ENDPOINT ?? "";
+}
+
 function resolveWalletPath() {
   if (process.env.ANCHOR_WALLET) {
     return expandHome(process.env.ANCHOR_WALLET);
@@ -48,27 +62,77 @@ function resolveWalletPath() {
   return resolve(homedir(), ".config/solana/id.json");
 }
 
-function buildProvider() {
-  const providerOptions = {
+function resolvePlayerOneWalletPath() {
+  if (process.env.PLAYER_ONE_WALLET) {
+    return expandHome(process.env.PLAYER_ONE_WALLET);
+  }
+
+  return resolveWalletPath();
+}
+
+function resolvePlayerTwoWalletPath() {
+  if (process.env.PLAYER_TWO_WALLET) {
+    return expandHome(process.env.PLAYER_TWO_WALLET);
+  }
+
+  return resolveWalletPath();
+}
+
+function providerOptions() {
+  return {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   } as const;
-  const walletKeypair = Keypair.fromSecretKey(
-    Uint8Array.from(
-      JSON.parse(readFileSync(resolveWalletPath(), "utf8")) as number[]
-    )
-  );
-  const connection = new anchor.web3.Connection(
-    resolveProviderUrl(),
-    providerOptions.commitment
-  );
-  const wallet = new anchor.Wallet(walletKeypair);
-
-  return new anchor.AnchorProvider(connection, wallet, providerOptions);
 }
 
-export function getTestContext() {
-  const provider = buildProvider();
+function loadWalletFromPath(path: string) {
+  return Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(readFileSync(path, "utf8")) as number[])
+  );
+}
+
+function loadWallet() {
+  return loadWalletFromPath(resolveWalletPath());
+}
+
+export function loadPlayerOneWallet() {
+  return loadWalletFromPath(resolvePlayerOneWalletPath());
+}
+
+export function loadPlayerTwoWallet() {
+  return loadWalletFromPath(resolvePlayerTwoWalletPath());
+}
+
+function buildProvider(url = resolveProviderUrl()) {
+  const opts = providerOptions();
+  const walletKeypair = loadWallet();
+  const connection = new anchor.web3.Connection(url, opts.commitment);
+  const wallet = new anchor.Wallet(walletKeypair);
+
+  return new anchor.AnchorProvider(connection, wallet, opts);
+}
+
+export function buildBaseProvider() {
+  return buildProvider(resolveProviderUrl());
+}
+
+export function buildEphemeralProvider(erUrl: string) {
+  return buildProvider(erUrl);
+}
+
+export async function buildEphemeralProviderForAccount(account: PublicKey) {
+  const config = requireMagicBlockConfig();
+  const status = await getDelegationStatus(account, config.routerEndpoint);
+  if (!status.fqdn) {
+    throw new Error(
+      `Router returned no ER endpoint for delegated account ${account.toBase58()}.`
+    );
+  }
+
+  return buildEphemeralProvider(status.fqdn);
+}
+
+function buildTestContext(provider: anchor.AnchorProvider) {
   anchor.setProvider(provider);
   // Prefer Anchor's auto-loaded workspace client, but fall back to the built IDL
   // so tests can still construct the program client when `anchor test` is unavailable.
@@ -83,6 +147,42 @@ export function getTestContext() {
     program,
     gamePda,
   };
+}
+
+export function getTestContext() {
+  return buildTestContext(buildBaseProvider());
+}
+
+export function getEphemeralTestContext(erUrl: string) {
+  return buildTestContext(buildEphemeralProvider(erUrl));
+}
+
+export function getMagicBlockConfig() {
+  const baseUrl = resolveProviderUrl();
+  const routerEndpoint = resolveRouterEndpoint();
+  const erUrl = resolveEphemeralProviderUrl();
+  const isLocalBase =
+    baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost");
+
+  return {
+    baseUrl,
+    routerEndpoint,
+    erUrl,
+    isLocalBase,
+    validator:
+      process.env.MAGICBLOCK_VALIDATOR ??
+      (isLocalBase ? LOCAL_MAGICBLOCK_VALIDATOR.toBase58() : ""),
+  };
+}
+
+export function requireMagicBlockConfig() {
+  const config = getMagicBlockConfig();
+  if (!config.routerEndpoint) {
+    throw new Error(
+      "ROUTER_ENDPOINT is required for MagicBlock delegation tests."
+    );
+  }
+  return config;
 }
 
 export function deriveSeasonAccounts(
@@ -218,10 +318,15 @@ export async function overwriteAccountOnLocalValidator(
   const accountInfo = await connection.getAccountInfo(address);
   expect(accountInfo).to.not.equal(null);
 
-  const updatedData = mutate(Buffer.from((accountInfo as AccountInfo<Buffer>).data));
+  const updatedData = mutate(
+    Buffer.from((accountInfo as AccountInfo<Buffer>).data)
+  );
   const response = await (
     connection as anchor.web3.Connection & {
-      _rpcRequest: (method: string, args: unknown[]) => Promise<{
+      _rpcRequest: (
+        method: string,
+        args: unknown[]
+      ) => Promise<{
         error?: { message?: string };
         result?: unknown;
       }>;
@@ -396,6 +501,219 @@ export async function ensureGameInitialized() {
       throw error;
     }
   }
+}
+
+export type DelegationStatus = {
+  isDelegated: boolean;
+  fqdn?: string;
+  delegationRecord?: {
+    authority?: string;
+    owner?: string;
+    delegationSlot?: number;
+    lamports?: number;
+  };
+};
+
+export async function getDelegationStatus(
+  account: PublicKey,
+  routerEndpoint: string
+): Promise<DelegationStatus> {
+  const response = await fetch(routerEndpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getDelegationStatus",
+      params: [account.toBase58()],
+    }),
+  });
+  const body = (await response.json()) as {
+    error?: { message?: string };
+    result?: DelegationStatus;
+  };
+
+  if (body.error) {
+    throw new Error(body.error.message ?? "getDelegationStatus failed");
+  }
+  if (!body.result) {
+    throw new Error("Router returned no delegation status result");
+  }
+
+  return body.result;
+}
+
+export async function waitForDelegation(
+  connection: anchor.web3.Connection,
+  routerEndpoint: string,
+  account: PublicKey,
+  maxAttempts = 20
+) {
+  let lastStatus: DelegationStatus | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const [baseInfo, status] = await Promise.all([
+      connection.getAccountInfo(account, "confirmed"),
+      getDelegationStatus(account, routerEndpoint),
+    ]);
+    lastStatus = status;
+
+    if (
+      baseInfo &&
+      baseInfo.owner.equals(DELEGATION_PROGRAM_ID) &&
+      status.isDelegated
+    ) {
+      return {
+        baseInfo,
+        status,
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error(
+    `Account ${account.toBase58()} did not become delegated. Last router status: ${JSON.stringify(
+      lastStatus
+    )}`
+  );
+}
+
+export async function createJoinedPlayerForSeason(
+  program: anchor.Program<Pixl>,
+  seasonPda: PublicKey,
+  seasonStatsPda: PublicKey,
+  wallet: Keypair
+) {
+  const { playerPda } = derivePlayerAccount(
+    program.programId,
+    wallet.publicKey
+  );
+  let initPlayerSignature: string | null = null;
+
+  try {
+    initPlayerSignature = await program.methods
+      .initPlayer()
+      .accounts({
+        wallet: wallet.publicKey,
+        // @ts-ignore
+        game: deriveGamePda(program.programId)[0],
+        player: playerPda,
+      })
+      .signers([wallet])
+      .rpc();
+    console.log("initPlayer signature:", initPlayerSignature);
+  } catch (error) {
+    const parsed = await getAnchorTestError(
+      error,
+      (program.provider as anchor.AnchorProvider).connection
+    );
+    const alreadyExists = [parsed.message, ...parsed.logs].some((line) =>
+      line.toLowerCase().includes("already in use")
+    );
+
+    if (!alreadyExists) {
+      throw error;
+    }
+
+    console.log(
+      `initPlayer skipped for ${wallet.publicKey.toBase58()}: player ${playerPda.toBase58()} already exists`
+    );
+  }
+
+  const { seasonProfilePda } = deriveSeasonProfileAccount(
+    program.programId,
+    seasonPda,
+    wallet.publicKey
+  );
+  const joinSeasonSignature = await program.methods
+    .joinSeason()
+    .accounts({
+      wallet: wallet.publicKey,
+      // @ts-ignore
+      player: playerPda,
+      season: seasonPda,
+      seasonStats: seasonStatsPda,
+      seasonProfile: seasonProfilePda,
+    })
+    .signers([wallet])
+    .rpc();
+  console.log("joinSeason signature:", joinSeasonSignature);
+
+  return {
+    wallet,
+    playerPda,
+    seasonProfilePda,
+    initPlayerSignature,
+    joinSeasonSignature,
+  };
+}
+
+export type DelegateAnyAccountType =
+  | { player: { wallet: PublicKey } }
+  | { seasonProfile: { season: PublicKey; wallet: PublicKey } }
+  | { seasonStats: { season: PublicKey } };
+
+export async function delegateAny(
+  program: anchor.Program<Pixl>,
+  params: {
+    payer?: Keypair;
+    targetAccount: PublicKey;
+    season: PublicKey;
+    game: PublicKey;
+    accountType: DelegateAnyAccountType;
+    validator?: PublicKey;
+  }
+) {
+  const provider = program.provider as anchor.AnchorProvider;
+  const payer = params.payer ?? provider.wallet.payer;
+  const payerPublicKey =
+    "publicKey" in payer ? payer.publicKey : provider.wallet.publicKey;
+
+  const methodBuilder = (program.methods as any).delegateAny(
+    params.accountType
+  );
+
+  return methodBuilder
+    .accounts({
+      payer: payerPublicKey,
+      targetAccount: params.targetAccount,
+      season: params.season,
+      game: params.game,
+      validator: params.validator ?? null,
+    })
+    .signers([
+      ...(params.payer ? [params.payer] : []),
+    ])
+    .rpc();
+}
+
+export async function delegateCanvas(
+  program: anchor.Program<Pixl>,
+  params: {
+    payer?: Keypair;
+    canvas: Keypair;
+    season: PublicKey;
+    game: PublicKey;
+    validator?: PublicKey;
+  }
+) {
+  const provider = program.provider as anchor.AnchorProvider;
+  const payer = params.payer ?? provider.wallet.payer;
+  const payerPublicKey =
+    "publicKey" in payer ? payer.publicKey : provider.wallet.publicKey;
+
+  return (program.methods as any)
+    .delegateCanvas()
+    .accounts({
+      payer: payerPublicKey,
+      canvas: params.canvas.publicKey,
+      season: params.season,
+      game: params.game,
+      validator: params.validator ?? null,
+    })
+    .signers([...(params.payer ? [params.payer] : []), params.canvas])
+    .rpc();
 }
 
 export async function getAnchorTestError(

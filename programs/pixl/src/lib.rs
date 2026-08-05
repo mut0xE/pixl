@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::anchor::ephemeral;
 
 declare_id!("3xQjRQauFtSbMJHuUbrTzzYVP7h4W163BYT8zZxNEu2m");
 mod constants;
@@ -14,6 +15,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
+#[ephemeral]
 #[program]
 pub mod pixl {
     use super::*;
@@ -28,6 +30,14 @@ pub mod pixl {
 
     pub fn end_season(ctx: Context<EndSeason>) -> Result<()> {
         instructions::end_season::handle_end_season(ctx)
+    }
+
+    pub fn delegate_any(ctx: Context<DelegateAny>, account_type: AccountType) -> Result<()> {
+        instructions::delegate_gameplay::delegate_any(ctx, account_type)
+    }
+
+    pub fn delegate_canvas(ctx: Context<DelegateCanvas>) -> Result<()> {
+        instructions::delegate_gameplay::delegate_canvas(ctx)
     }
 
     pub fn join_season(ctx: Context<JoinSeason>) -> Result<()> {

@@ -5,8 +5,10 @@
     "test:init-game": "ts-mocha -p ./tsconfig.json -t 300000 tests/init-game.ts",
     "test:init-player": "ts-mocha -p ./tsconfig.json -t 300000 tests/init-player.ts",
     "test:join-season": "ts-mocha -p ./tsconfig.json -t 300000 tests/join-season.ts",
+    "test:magicblock-delegation": "ts-mocha -p ./tsconfig.json -t 300000 tests/magicblock-delegation.ts",
     "test:paint-pixel": "ts-mocha -p ./tsconfig.json -t 300000 tests/paint-pixel.ts",
     "test:start-season": "ts-mocha -p ./tsconfig.json -t 300000 tests/start-season.ts",
+    "magicblock:delegate": "yarn test:magicblock-delegation",
     "format": "prettier --write .",
     "lint": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json"

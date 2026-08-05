@@ -137,7 +137,13 @@ pub fn handle_start_season(ctx: Context<StartSeason>, args: StartSeasonArgs) -> 
         );
     }
 
-    initialize_canvas_account(&mut ctx.accounts.canvas, season.key(), width, height, total_pixels);
+    initialize_canvas_account(
+        &mut ctx.accounts.canvas,
+        season.key(),
+        width,
+        height,
+        total_pixels,
+    );
 
     game.current_season = season.key();
     game.current_season_id = args.season_id;
