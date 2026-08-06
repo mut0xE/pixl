@@ -17,6 +17,7 @@ import {
   u32ToHex,
   hexToU32,
   estimateAvailableEnergy,
+  canPaint,
   assertSeasonBelongsToGame,
   assertCanvasBelongsToSeason,
   assertPlayerOwnedBy,
@@ -38,10 +39,39 @@ import {
   deriveBootstrapStatus,
   normalizeError,
   type StartSeasonArgs,
+  fitScale,
+  fitCamera,
+  centerCamera,
+  clampScale,
+  screenToCanvas,
+  screenToCell,
+  cellToScreen,
+  zoomAt,
+  panBy,
+  clampOffset,
+  shouldShowGrid,
+  MIN_SCALE,
+  MAX_SCALE,
+  GRID_SCALE_THRESHOLD,
+  classifySeason,
+  toSeasonSummary,
+  sortSeasonsForDisplay,
+  summarizeSeasonCounts,
+  type SeasonSummary,
+  buildEndSeasonIx,
+  buildCommitGameplayStateIx,
+  MAGIC_PROGRAM_ID,
+  MAGIC_CONTEXT_ID,
+  canvasToSnapshot,
+  snapshotToRgbaBytes,
+  snapshotToJson,
+  paletteIndexToRgba,
 } from "./index";
 import { SystemProgram } from "@solana/web3.js";
 
-const PROGRAM_ID = new PublicKey("A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ");
+const PROGRAM_ID = new PublicKey(
+  "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ"
+);
 const pixlIdl = require("../../target/idl/pixl.json");
 
 describe("pda derivation", () => {
@@ -66,13 +96,17 @@ describe("pda derivation", () => {
 
   it("changes season PDA with season id", () => {
     expect(
-      deriveSeasonPda(PROGRAM_ID, 1)[0].equals(deriveSeasonPda(PROGRAM_ID, 2)[0])
+      deriveSeasonPda(PROGRAM_ID, 1)[0].equals(
+        deriveSeasonPda(PROGRAM_ID, 2)[0]
+      )
     ).to.equal(false);
   });
 
   it("rejects out-of-range season ids", () => {
     expect(() => deriveSeasonPda(PROGRAM_ID, -1)).to.throw(RangeError);
-    expect(() => deriveSeasonPda(PROGRAM_ID, 0x1_0000_0000)).to.throw(RangeError);
+    expect(() => deriveSeasonPda(PROGRAM_ID, 0x1_0000_0000)).to.throw(
+      RangeError
+    );
   });
 });
 
@@ -160,6 +194,97 @@ describe("energy estimation", () => {
   });
 });
 
+describe("canPaint (paint pre-checks)", () => {
+  // Mirrors every require! in paint_pixel.rs. now=1000 is inside the season and
+  // the player has 2 energy available, painting color 1 onto a 4x4 canvas whose
+  // pixels are all color 0.
+  const base = {
+    season: { startTime: 0, endTime: 10_000, completed: false },
+    canvas: {
+      width: 4,
+      height: 4,
+      frozen: false,
+      pixels: new Array(16).fill(0),
+    },
+    paletteLength: 4,
+    player: {
+      availableEnergy: 2,
+      maxEnergy: 6,
+      energyCooldownSeconds: 30,
+      lastEnergyRefresh: 1000,
+    },
+    x: 1,
+    y: 1,
+    colorIndex: 1,
+    now: 1000,
+  };
+
+  it("accepts a valid paint and returns the row-major index", () => {
+    const r = canPaint(base);
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.index).to.equal(5); // y*width + x = 1*4 + 1
+  });
+
+  it("blocks when the season is not active", () => {
+    expect(canPaint({ ...base, now: 20_000 })).to.deep.equal({
+      ok: false,
+      reason: "season_inactive",
+    });
+    expect(
+      canPaint({ ...base, season: { ...base.season, completed: true } })
+    ).to.deep.equal({ ok: false, reason: "season_inactive" });
+  });
+
+  it("blocks a frozen canvas", () => {
+    expect(
+      canPaint({ ...base, canvas: { ...base.canvas, frozen: true } })
+    ).to.deep.equal({ ok: false, reason: "frozen" });
+  });
+
+  it("blocks out-of-bounds coordinates", () => {
+    expect(canPaint({ ...base, x: 4 })).to.deep.equal({
+      ok: false,
+      reason: "out_of_bounds",
+    });
+    expect(canPaint({ ...base, y: 9 })).to.deep.equal({
+      ok: false,
+      reason: "out_of_bounds",
+    });
+  });
+
+  it("blocks a color index outside the palette", () => {
+    expect(canPaint({ ...base, colorIndex: 4 })).to.deep.equal({
+      ok: false,
+      reason: "invalid_color",
+    });
+  });
+
+  it("blocks when estimated energy is zero", () => {
+    expect(
+      canPaint({
+        ...base,
+        player: { ...base.player, availableEnergy: 0 },
+      })
+    ).to.deep.equal({ ok: false, reason: "no_energy" });
+  });
+
+  it("regenerates energy from the timestamp before blocking", () => {
+    // 0 stored, but 60s elapsed at 30s cooldown => 2 regenerated.
+    const r = canPaint({
+      ...base,
+      player: { ...base.player, availableEnergy: 0, lastEnergyRefresh: 940 },
+    });
+    expect(r.ok).to.equal(true);
+  });
+
+  it("blocks painting a pixel its current color", () => {
+    expect(canPaint({ ...base, colorIndex: 0 })).to.deep.equal({
+      ok: false,
+      reason: "same_color",
+    });
+  });
+});
+
 describe("account relationship validation", () => {
   const game = Keypair.generate().publicKey;
   const season = Keypair.generate().publicKey;
@@ -182,20 +307,29 @@ describe("account relationship validation", () => {
     expect(() =>
       assertProfileMatches({ season, player }, season, player)
     ).to.not.throw();
-    expect(() =>
-      assertStatsBelongToSeason({ season }, season)
-    ).to.not.throw();
+    expect(() => assertStatsBelongToSeason({ season }, season)).to.not.throw();
   });
 
   it("rejects mismatches", () => {
     const other = Keypair.generate().publicKey;
     expect(() =>
-      assertSeasonBelongsToGame({ game: other }, season, { currentSeason: season }, game)
+      assertSeasonBelongsToGame(
+        { game: other },
+        season,
+        { currentSeason: season },
+        game
+      )
     ).to.throw();
-    expect(() => assertCanvasBelongsToSeason({ season: other }, season)).to.throw();
+    expect(() =>
+      assertCanvasBelongsToSeason({ season: other }, season)
+    ).to.throw();
     expect(() => assertPlayerOwnedBy({ wallet: other }, wallet)).to.throw();
-    expect(() => assertProfileMatches({ season, player: other }, season, player)).to.throw();
-    expect(() => assertStatsBelongToSeason({ season: other }, season)).to.throw();
+    expect(() =>
+      assertProfileMatches({ season, player: other }, season, player)
+    ).to.throw();
+    expect(() =>
+      assertStatsBelongToSeason({ season: other }, season)
+    ).to.throw();
   });
 });
 
@@ -336,11 +470,15 @@ describe("admin: canvas creation + delegation", () => {
       startTime: new BN(1_000),
       endTime: new BN(2_000),
     };
-    const result = await buildCreateSeasonWithDelegationTx(conn as any, program, {
-      authority,
-      game,
-      args,
-    });
+    const result = await buildCreateSeasonWithDelegationTx(
+      conn as any,
+      program,
+      {
+        authority,
+        game,
+        args,
+      }
+    );
     expect(result.instructions.length).to.equal(4);
     expect(result.transaction.instructions.length).to.equal(4);
     // The ephemeral canvas keypair is returned so the caller can partial-sign.
@@ -407,10 +545,16 @@ describe("bootstrap builders", () => {
   it("resolves the four bootstrap PDAs", () => {
     const r = resolveBootstrapAccounts(PROGRAM_ID, wallet, seasonPda);
     expect(r.game.equals(deriveGamePda(PROGRAM_ID)[0])).to.equal(true);
-    expect(r.player.equals(derivePlayerPda(PROGRAM_ID, wallet)[0])).to.equal(true);
-    expect(r.seasonStats.equals(deriveSeasonStatsPda(PROGRAM_ID, seasonPda)[0])).to.equal(true);
+    expect(r.player.equals(derivePlayerPda(PROGRAM_ID, wallet)[0])).to.equal(
+      true
+    );
     expect(
-      r.seasonProfile.equals(deriveSeasonProfilePda(PROGRAM_ID, seasonPda, wallet)[0])
+      r.seasonStats.equals(deriveSeasonStatsPda(PROGRAM_ID, seasonPda)[0])
+    ).to.equal(true);
+    expect(
+      r.seasonProfile.equals(
+        deriveSeasonProfilePda(PROGRAM_ID, seasonPda, wallet)[0]
+      )
     ).to.equal(true);
   });
 
@@ -448,48 +592,85 @@ describe("deriveBootstrapStatus", () => {
     season: { completed: false, startTime: 0, endTime: 1000 } as any,
     player: {},
     seasonProfile: {},
-    session: { sessionSigner: "s", sessionToken: "t", validUntil: 999 },
+    session: {
+      sessionSigner: "s",
+      sessionToken: "t",
+      validUntil: 999,
+      nonce: 1,
+    },
     now: 500,
   };
 
   it("disconnected when wallet not connected", () => {
-    expect(deriveBootstrapStatus({ ...base, connected: false })).to.equal("disconnected");
+    expect(deriveBootstrapStatus({ ...base, connected: false })).to.equal(
+      "disconnected"
+    );
   });
   it("loading_game when game not yet fetched", () => {
-    expect(deriveBootstrapStatus({ ...base, game: null })).to.equal("loading_game");
+    expect(deriveBootstrapStatus({ ...base, game: null })).to.equal(
+      "loading_game"
+    );
   });
   it("no_active_season when current_season is zero", () => {
-    expect(deriveBootstrapStatus({ ...base, season: "zero" as any })).to.equal("no_active_season");
+    expect(deriveBootstrapStatus({ ...base, season: "zero" as any })).to.equal(
+      "no_active_season"
+    );
   });
   it("no_active_season when completed", () => {
     expect(
-      deriveBootstrapStatus({ ...base, season: { completed: true, startTime: 0, endTime: 1000 } })
+      deriveBootstrapStatus({
+        ...base,
+        season: { completed: true, startTime: 0, endTime: 1000 },
+      })
     ).to.equal("no_active_season");
   });
   it("no_active_season when now outside window", () => {
     expect(
-      deriveBootstrapStatus({ ...base, season: { completed: false, startTime: 0, endTime: 100 }, now: 500 })
+      deriveBootstrapStatus({
+        ...base,
+        season: { completed: false, startTime: 0, endTime: 100 },
+        now: 500,
+      })
     ).to.equal("no_active_season");
   });
   it("loading_player when season loaded but player null-vs-loading unknown", () => {
     // player === undefined means still loading
-    expect(deriveBootstrapStatus({ ...base, player: undefined as any })).to.equal("loading_player");
+    expect(
+      deriveBootstrapStatus({ ...base, player: undefined as any })
+    ).to.equal("loading_player");
   });
   it("player_missing when player fetch returned null", () => {
-    expect(deriveBootstrapStatus({ ...base, player: null })).to.equal("player_missing");
+    expect(deriveBootstrapStatus({ ...base, player: null })).to.equal(
+      "player_missing"
+    );
   });
   it("loading_profile when profile still loading", () => {
-    expect(deriveBootstrapStatus({ ...base, seasonProfile: undefined as any })).to.equal("loading_profile");
+    expect(
+      deriveBootstrapStatus({ ...base, seasonProfile: undefined as any })
+    ).to.equal("loading_profile");
   });
   it("season_profile_missing when profile null", () => {
-    expect(deriveBootstrapStatus({ ...base, seasonProfile: null })).to.equal("season_profile_missing");
+    expect(deriveBootstrapStatus({ ...base, seasonProfile: null })).to.equal(
+      "season_profile_missing"
+    );
   });
   it("session_missing when no session", () => {
-    expect(deriveBootstrapStatus({ ...base, session: null })).to.equal("session_missing");
+    expect(deriveBootstrapStatus({ ...base, session: null })).to.equal(
+      "session_missing"
+    );
   });
   it("session_expired when validUntil in the past", () => {
     expect(
-      deriveBootstrapStatus({ ...base, session: { sessionSigner: "s", sessionToken: "t", validUntil: 100 }, now: 500 })
+      deriveBootstrapStatus({
+        ...base,
+        session: {
+          sessionSigner: "s",
+          sessionToken: "t",
+          validUntil: 100,
+          nonce: 1,
+        },
+        now: 500,
+      })
     ).to.equal("session_expired");
   });
   it("ready when everything present and session valid", () => {
@@ -503,11 +684,17 @@ describe("normalizeError", () => {
     expect(r.title).to.equal("Signature rejected");
   });
   it("detects insufficient funds", () => {
-    const r = normalizeError(new Error("Attempt to debit an account but found no record of a prior credit"));
+    const r = normalizeError(
+      new Error(
+        "Attempt to debit an account but found no record of a prior credit"
+      )
+    );
     expect(r.title).to.equal("Insufficient SOL");
   });
   it("surfaces named anchor error codes", () => {
-    const r = normalizeError(new Error("custom program error: SeasonNotActive"));
+    const r = normalizeError(
+      new Error("custom program error: SeasonNotActive")
+    );
     expect(r.detail).to.contain("SeasonNotActive");
   });
   it("falls back to raw message", () => {
@@ -517,5 +704,294 @@ describe("normalizeError", () => {
   it("handles non-Error values", () => {
     const r = normalizeError("weird");
     expect(r.detail).to.contain("weird");
+  });
+});
+
+describe("camera math", () => {
+  const CANVAS = { width: 256, height: 256 };
+
+  it("fitScale uses the limiting dimension (contain)", () => {
+    // Wide viewport -> height is limiting.
+    expect(fitScale({ width: 1024, height: 512 }, CANVAS)).to.equal(2);
+    // Tall viewport -> width is limiting.
+    expect(fitScale({ width: 512, height: 1024 }, CANVAS)).to.equal(2);
+  });
+
+  it("fitScale rejects a degenerate canvas", () => {
+    expect(() =>
+      fitScale({ width: 100, height: 100 }, { width: 0, height: 10 })
+    ).to.throw();
+  });
+
+  it("fitCamera centers the canvas in the viewport", () => {
+    const cam = fitCamera({ width: 1024, height: 512 }, CANVAS);
+    expect(cam.scale).to.equal(2);
+    // 256*2 = 512 wide, centered in 1024 -> offsetX = (1024-512)/2 = 256.
+    expect(cam.offsetX).to.equal(256);
+    // 256*2 = 512 tall, exactly fills height -> offsetY = 0.
+    expect(cam.offsetY).to.equal(0);
+  });
+
+  it("centerCamera positions a given scale", () => {
+    const cam = centerCamera(4, { width: 2048, height: 2048 }, CANVAS);
+    expect(cam.offsetX).to.equal((2048 - 256 * 4) / 2);
+    expect(cam.offsetY).to.equal(cam.offsetX);
+  });
+
+  it("clampScale bounds and validates", () => {
+    expect(clampScale(1000)).to.equal(MAX_SCALE);
+    expect(clampScale(0.001)).to.equal(MIN_SCALE);
+    expect(clampScale(3)).to.equal(3);
+    expect(() => clampScale(1, 5, 2)).to.throw();
+  });
+
+  it("screenToCanvas and cellToScreen are inverses at cell corners", () => {
+    const cam = { scale: 10, offsetX: 100, offsetY: 50 };
+    const corner = cellToScreen(cam, 7, 3);
+    const back = screenToCanvas(cam, corner.x, corner.y);
+    expect(back.x).to.be.closeTo(7, 1e-9);
+    expect(back.y).to.be.closeTo(3, 1e-9);
+  });
+
+  it("screenToCell floors into the containing cell", () => {
+    const cam = { scale: 10, offsetX: 0, offsetY: 0 };
+    // Anywhere inside cell (2,4) -> [20,30) x [40,50) maps to (2,4).
+    expect(screenToCell(cam, 25, 49, CANVAS)).to.deep.equal({ x: 2, y: 4 });
+    expect(screenToCell(cam, 20, 40, CANVAS)).to.deep.equal({ x: 2, y: 4 });
+  });
+
+  it("screenToCell returns null outside the canvas", () => {
+    const cam = { scale: 10, offsetX: 0, offsetY: 0 };
+    expect(screenToCell(cam, -1, 5, CANVAS)).to.equal(null);
+    expect(screenToCell(cam, 5, -1, CANVAS)).to.equal(null);
+    // x = 256 is out of [0,256).
+    expect(screenToCell(cam, 2560, 5, CANVAS)).to.equal(null);
+  });
+
+  it("zoomAt keeps the anchored canvas point under the cursor", () => {
+    const cam = { scale: 4, offsetX: 30, offsetY: 60 };
+    const anchorX = 200;
+    const anchorY = 140;
+    const before = screenToCanvas(cam, anchorX, anchorY);
+    const zoomed = zoomAt(cam, 2, anchorX, anchorY);
+    const after = screenToCanvas(zoomed, anchorX, anchorY);
+    expect(zoomed.scale).to.equal(8);
+    expect(after.x).to.be.closeTo(before.x, 1e-9);
+    expect(after.y).to.be.closeTo(before.y, 1e-9);
+  });
+
+  it("zoomAt does not move the camera when clamped", () => {
+    const cam = { scale: MAX_SCALE, offsetX: 10, offsetY: 20 };
+    expect(zoomAt(cam, 2, 100, 100)).to.equal(cam);
+  });
+
+  it("panBy translates the offset", () => {
+    const cam = { scale: 4, offsetX: 10, offsetY: 20 };
+    const p = panBy(cam, -5, 15);
+    expect(p).to.deep.equal({ scale: 4, offsetX: 5, offsetY: 35 });
+  });
+
+  it("clampOffset keeps a margin of canvas on-screen", () => {
+    const vp = { width: 800, height: 600 };
+    const cam = { scale: 4, offsetX: 100000, offsetY: -100000 };
+    const c = clampOffset(cam, vp, CANVAS, 24);
+    const spanX = 256 * 4;
+    const spanY = 256 * 4;
+    // Dragged far right -> offset capped at viewport.width - margin.
+    expect(c.offsetX).to.equal(vp.width - 24);
+    // Dragged far up -> offset floored at margin - span.
+    expect(c.offsetY).to.equal(24 - spanY);
+    expect(spanX).to.equal(1024);
+  });
+
+  it("shouldShowGrid honors the threshold", () => {
+    expect(shouldShowGrid(GRID_SCALE_THRESHOLD)).to.equal(true);
+    expect(shouldShowGrid(GRID_SCALE_THRESHOLD - 0.01)).to.equal(false);
+  });
+});
+
+describe("season history", () => {
+  const NOW = 1_000;
+
+  it("classifies by completed flag and time window", () => {
+    expect(
+      classifySeason({ completed: true, startTime: 0, endTime: 2000 }, NOW)
+    ).to.equal("ended");
+    expect(
+      classifySeason({ completed: false, startTime: 1500, endTime: 2000 }, NOW)
+    ).to.equal("upcoming");
+    expect(
+      classifySeason({ completed: false, startTime: 500, endTime: 2000 }, NOW)
+    ).to.equal("active");
+    // now == endTime is past the half-open window -> ended.
+    expect(
+      classifySeason({ completed: false, startTime: 500, endTime: 1000 }, NOW)
+    ).to.equal("ended");
+  });
+
+  it("normalizes a decoded account (BN timings) into a summary", () => {
+    const season = deriveSeasonPda(PROGRAM_ID, 7)[0];
+    const canvas = deriveCanvasPda(PROGRAM_ID, season)[0];
+    const summary = toSeasonSummary(
+      season,
+      {
+        id: 7,
+        title: "Genesis",
+        description: "d",
+        palette: [0xff0000ff, 0x00ff00ff],
+        imageUri: "ipfs://x",
+        canvas,
+        startTime: new BN(500),
+        endTime: new BN(2000),
+        completed: false,
+      },
+      NOW
+    );
+    expect(summary.address).to.equal(season.toBase58());
+    expect(summary.id).to.equal(7);
+    expect(summary.canvas).to.equal(canvas.toBase58());
+    expect(summary.startTime).to.equal(500);
+    expect(summary.endTime).to.equal(2000);
+    expect(summary.palette).to.deep.equal([0xff0000ff, 0x00ff00ff]);
+    expect(summary.status).to.equal("active");
+  });
+
+  it("sorts active, then upcoming, then ended; recent first within a group", () => {
+    const mk = (
+      id: number,
+      status: SeasonSummary["status"],
+      startTime: number
+    ): SeasonSummary => ({
+      address: String(id),
+      id,
+      title: "s",
+      description: "",
+      palette: [],
+      imageUri: "",
+      canvas: "c",
+      startTime,
+      endTime: startTime + 10,
+      completed: status === "ended",
+      status,
+    });
+    const sorted = sortSeasonsForDisplay([
+      mk(1, "ended", 100),
+      mk(2, "active", 50),
+      mk(3, "ended", 300),
+      mk(4, "upcoming", 200),
+    ]);
+    expect(sorted.map((s) => s.id)).to.deep.equal([2, 4, 3, 1]);
+  });
+
+  it("summarizes counts by status", () => {
+    const counts = summarizeSeasonCounts([
+      { status: "ended" } as SeasonSummary,
+      { status: "ended" } as SeasonSummary,
+      { status: "active" } as SeasonSummary,
+    ]);
+    expect(counts).to.deep.equal({ active: 1, upcoming: 0, ended: 2 });
+  });
+});
+
+describe("admin: season lifecycle builders", () => {
+  const dummyKey = Keypair.generate();
+  const wallet = {
+    publicKey: dummyKey.publicKey,
+    signTransaction: async (t: any) => t,
+    signAllTransactions: async (t: any) => t,
+  };
+  const provider = new AnchorProvider(
+    new Connection("http://localhost:8899"),
+    wallet as any,
+    {}
+  );
+  const program = new Program(pixlIdl as any, provider) as any;
+
+  const authority = dummyKey.publicKey;
+  const game = Keypair.generate().publicKey;
+  const season = Keypair.generate().publicKey;
+  const seasonStats = Keypair.generate().publicKey;
+  const canvas = Keypair.generate().publicKey;
+
+  it("builds end_season signed by the authority on L1", async () => {
+    const ix = await buildEndSeasonIx(program, {
+      authority,
+      game,
+      season,
+      canvas,
+    });
+    expect(ix.programId.equals(program.programId)).to.equal(true);
+    const authMeta = ix.keys.find((k) => k.pubkey.equals(authority));
+    expect(authMeta?.isSigner).to.equal(true);
+    // Canvas + season must be referenced.
+    expect(ix.keys.some((k) => k.pubkey.equals(canvas))).to.equal(true);
+    expect(ix.keys.some((k) => k.pubkey.equals(season))).to.equal(true);
+  });
+
+  it("builds commit_gameplay_state with the magic context accounts", async () => {
+    const ix = await buildCommitGameplayStateIx(program, {
+      authority,
+      season,
+      seasonStats,
+      canvas,
+      undelegate: true,
+    });
+    const payerMeta = ix.keys.find((k) => k.pubkey.equals(authority));
+    expect(payerMeta?.isSigner).to.equal(true);
+    expect(ix.keys.some((k) => k.pubkey.equals(MAGIC_PROGRAM_ID))).to.equal(
+      true
+    );
+    expect(ix.keys.some((k) => k.pubkey.equals(MAGIC_CONTEXT_ID))).to.equal(
+      true
+    );
+  });
+});
+
+describe("snapshot export", () => {
+  const palette = [0xff0000ff, 0x00ff00ff];
+
+  it("resolves palette indices, transparent for out-of-range", () => {
+    expect(paletteIndexToRgba(palette, 0)).to.deep.equal({
+      r: 255,
+      g: 0,
+      b: 0,
+      a: 255,
+    });
+    expect(paletteIndexToRgba(palette, 9)).to.deep.equal({
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+    });
+  });
+
+  it("builds a snapshot and rejects a size mismatch", () => {
+    const snap = canvasToSnapshot({
+      width: 2,
+      height: 1,
+      palette,
+      pixels: [0, 1],
+    });
+    expect(snap).to.deep.equal({
+      width: 2,
+      height: 1,
+      palette,
+      indices: [0, 1],
+    });
+    expect(() =>
+      canvasToSnapshot({ width: 2, height: 2, palette, pixels: [0, 1] })
+    ).to.throw(/does not match/);
+  });
+
+  it("rasterizes to an RGBA byte buffer", () => {
+    const snap = canvasToSnapshot({
+      width: 2,
+      height: 1,
+      palette,
+      pixels: [0, 1],
+    });
+    const bytes = snapshotToRgbaBytes(snap);
+    expect([...bytes]).to.deep.equal([255, 0, 0, 255, 0, 255, 0, 255]);
+    expect(JSON.parse(snapshotToJson(snap)).width).to.equal(2);
   });
 });

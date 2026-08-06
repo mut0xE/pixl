@@ -10,7 +10,13 @@
   --warn: #f2c14e;
   --err: #ff6b6b;
   --font-display: var(--silkscreen-font, "Courier New", monospace);
-  --font-mono: var(--jetbrains-font, "SFMono-Regular", Menlo, Consolas, monospace);
+  --font-mono: var(
+    --jetbrains-font,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace
+  );
 }
 
 * {
@@ -26,8 +32,11 @@ body {
 body {
   min-height: 100vh;
   background-color: var(--ink);
-  background-image:
-    radial-gradient(circle at 1px 1px, var(--grid) 1.5px, transparent 1.5px);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--grid) 1.5px,
+    transparent 1.5px
+  );
   background-size: 28px 28px;
   color: var(--paper);
   font-family: var(--font-mono);
@@ -327,4 +336,692 @@ a:focus-visible {
 
 .wallet-adapter-modal-list .wallet-adapter-button {
   border-radius: 0 !important;
+}
+
+/* ── Phase 9.1: canvas renderer ─────────────────────────────────────── */
+.canvas-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(72vw, 720px);
+}
+
+.canvas-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 62vh;
+  border: 1px solid var(--grid);
+  background: linear-gradient(45deg, #0e1017 25%, transparent 25%) 0 0 / 16px
+      16px,
+    linear-gradient(-45deg, #0e1017 25%, transparent 25%) 0 0 / 16px 16px,
+    var(--ink);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.canvas-viewport:active {
+  cursor: grabbing;
+}
+
+.canvas-surface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.canvas-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  background: var(--warn);
+}
+
+.canvas-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.canvas-hud__coord {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+  letter-spacing: 0.1em;
+}
+.canvas-hud__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.canvas-hud__zoom {
+  min-width: 48px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper);
+}
+
+.canvas-btn {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper);
+  background: var(--ink-raised);
+  border: 1px solid var(--grid);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.canvas-btn:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.canvas-stage__meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+
+.canvas-stage--message {
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--err);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* ── Season browser & history ───────────────────────────────────────── */
+.bootstrap-panel[data-status="no_active_season"],
+.bootstrap-panel[data-status="ready"] {
+  width: min(1060px, 96vw);
+}
+
+.season-browser__bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--grid);
+}
+.season-browser__heading {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--paper);
+}
+.season-browser__counts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+
+.season-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.season-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  text-align: left;
+  background: var(--ink);
+  border: 1px solid var(--grid);
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+.season-card:hover {
+  border-color: var(--signal);
+  transform: translateY(-2px);
+}
+.season-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.season-card__status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  padding: 2px 6px;
+  color: var(--ink);
+  background: var(--paper-dim);
+}
+.season-card__status[data-status="active"] {
+  background: var(--ok);
+}
+.season-card__status[data-status="upcoming"] {
+  background: var(--warn);
+}
+.season-card__id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+}
+.season-card__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--paper);
+  margin: 0;
+  line-height: 1.2;
+}
+.season-card__palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.season-card__swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #00000055;
+}
+.season-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+}
+.season-card__arrow {
+  color: var(--signal);
+}
+
+.season-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.season-detail__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--paper);
+  margin: 0;
+}
+.season-detail__id {
+  color: var(--paper-dim);
+}
+.season-detail__status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+.season-detail__status[data-status="active"] {
+  color: var(--ok);
+}
+
+.season-detail__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .season-detail__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.season-panel {
+  border: 1px solid var(--grid);
+  background: var(--ink);
+  padding: 16px;
+}
+.season-panel__heading {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--signal);
+  margin: 0 0 10px;
+}
+.season-panel__heading:not(:first-child) {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--grid);
+}
+.season-panel__totals {
+  display: flex;
+  gap: 24px;
+}
+.season-panel__num {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--paper);
+}
+.season-panel__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+.season-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.season-panel__list li {
+  display: grid;
+  grid-template-columns: 20px 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper);
+}
+.season-panel__rank {
+  color: var(--paper-dim);
+}
+.season-panel__px {
+  color: var(--paper-dim);
+}
+.season-panel__pct {
+  color: var(--signal);
+  min-width: 46px;
+  text-align: right;
+}
+.season-panel__empty {
+  display: block !important;
+  color: var(--paper-dim);
+  font-style: italic;
+}
+
+/* --- Palette picker: on-chain colors as selectable swatches --- */
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 8px;
+  border: 1px solid var(--grid);
+  background: var(--ink);
+}
+.palette__swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid var(--grid);
+  cursor: pointer;
+  image-rendering: pixelated;
+  transition: transform 80ms ease, border-color 80ms ease;
+}
+.palette__swatch:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--paper-dim);
+}
+.palette__swatch--on {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 2px var(--signal-dim);
+}
+.palette__swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* --- Paint error line --- */
+.canvas-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--err);
+  border-left: 2px solid var(--err);
+  background: #ff6b6b14;
+}
+
+/* ============================================================
+   Admin console — a distinct control surface over the pixel UI
+   ============================================================ */
+
+.admin-console {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px 20px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-console__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--grid);
+}
+
+.admin-console__title,
+.admin-denied__title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 0.12em;
+  color: var(--paper);
+  text-shadow: 3px 3px 0 var(--signal-dim);
+  margin: 0;
+}
+
+.admin-console__who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+
+.admin-badge,
+.admin-select,
+.admin-swatch__chip {
+  font-family: var(--font-mono);
+}
+
+.admin-badge {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  background: var(--ok);
+  padding: 3px 8px;
+}
+
+/* --- Cards --- */
+.admin-card {
+  position: relative;
+  background: var(--ink-raised);
+  border: 1px solid var(--grid);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-card::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 12px;
+  height: 12px;
+  border-top: 2px solid var(--signal);
+  border-left: 2px solid var(--signal);
+}
+
+.admin-card__heading {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--paper);
+  margin: 0;
+}
+.admin-card__id {
+  color: var(--paper-dim);
+}
+.admin-card__note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+  margin: 0;
+}
+.admin-card__foot {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  border-top: 1px dashed var(--grid);
+  padding-top: 12px;
+  margin: 0;
+}
+.admin-card__foot code,
+.admin-console__who code,
+.admin-denied__hint code {
+  color: var(--signal);
+}
+
+/* --- Form grid --- */
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+}
+.admin-field--wide {
+  grid-column: 1 / -1;
+}
+.admin-field input,
+.admin-select {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--grid);
+  padding: 9px 11px;
+  text-transform: none;
+}
+.admin-field input:focus,
+.admin-select:focus {
+  outline: none;
+  border-color: var(--signal);
+}
+.admin-select {
+  width: 100%;
+  cursor: pointer;
+}
+
+/* --- Palette editor --- */
+.admin-field__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+}
+.admin-palette__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.admin-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.admin-swatch__chip {
+  width: 26px;
+  height: 26px;
+  display: block;
+  border: 1px solid var(--grid);
+}
+.admin-swatch__x {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 15px;
+  height: 15px;
+  line-height: 13px;
+  font-size: 11px;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--grid);
+  cursor: pointer;
+}
+.admin-swatch__x:hover {
+  border-color: var(--err);
+  color: var(--err);
+}
+.admin-swatch--add {
+  gap: 6px;
+}
+.admin-swatch--add input[type="color"] {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--grid);
+  background: var(--ink);
+  cursor: pointer;
+}
+
+/* --- Lifecycle steps --- */
+.admin-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.admin-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-top: 1px dashed var(--grid);
+}
+.admin-step:first-child {
+  border-top: none;
+}
+.admin-step__label {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.admin-step__label > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.admin-step__label strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--paper);
+}
+.admin-step__label span:not(.admin-step__num) {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+}
+.admin-step__num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--signal);
+  border: 1px solid var(--signal-dim);
+}
+.admin-step .tx-button {
+  width: auto;
+  align-items: flex-end;
+}
+
+/* --- Danger + confirm --- */
+.canvas-btn--danger {
+  height: auto;
+  padding: 9px 16px;
+  border-color: var(--signal-dim);
+  color: var(--err);
+}
+.canvas-btn--danger:hover {
+  border-color: var(--err);
+  color: var(--err);
+  background: #ff6b6b12;
+}
+.admin-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--warn);
+  max-width: 260px;
+  text-align: right;
+}
+.admin-confirm__actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.admin-warn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--warn);
+  border-left: 2px solid var(--warn);
+  padding: 8px 12px;
+  background: #f2c14e12;
+  margin: 0;
+}
+.admin-ok {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ok);
+}
+
+/* --- Access denied --- */
+.admin-denied {
+  max-width: 520px;
+  margin: 80px auto;
+  padding: 40px 28px;
+  text-align: center;
+  background: var(--ink-raised);
+  border: 1px solid var(--grid);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.admin-denied__msg {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--paper);
+  margin: 0;
+}
+.admin-denied__hint {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-step {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
