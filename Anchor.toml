@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-pixl = "3xQjRQauFtSbMJHuUbrTzzYVP7h4W163BYT8zZxNEu2m"
+pixl = "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ"
 
 [registry]
 url = "https://api.apr.dev"
