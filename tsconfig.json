@@ -7,5 +7,6 @@
     "target": "es6",
     "esModuleInterop": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["node_modules", "app/web"]
 }
