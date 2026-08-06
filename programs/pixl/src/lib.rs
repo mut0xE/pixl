@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::ephemeral;
 
-declare_id!("3xQjRQauFtSbMJHuUbrTzzYVP7h4W163BYT8zZxNEu2m");
+declare_id!("A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ");
 mod constants;
 mod enums;
 mod errors;
@@ -33,11 +33,11 @@ pub mod pixl {
     }
 
     pub fn delegate_any(ctx: Context<DelegateAny>, account_type: AccountType) -> Result<()> {
-        instructions::delegate_gameplay::delegate_any(ctx, account_type)
+        instructions::delegate_gameplay::handle_delegate_any(ctx, account_type)
     }
 
     pub fn delegate_canvas(ctx: Context<DelegateCanvas>) -> Result<()> {
-        instructions::delegate_gameplay::delegate_canvas(ctx)
+        instructions::delegate_gameplay::handle_delegate_canvas(ctx)
     }
 
     pub fn join_season(ctx: Context<JoinSeason>) -> Result<()> {
@@ -48,12 +48,15 @@ pub mod pixl {
         instructions::start_season::handle_start_season(ctx, args)
     }
 
-    pub fn paint_pixel(
-        ctx: Context<PaintPixel>,
-        x: u16,
-        y: u16,
-        color_index: u8,
-    ) -> Result<()> {
+    pub fn paint_pixel(ctx: Context<PaintPixel>, x: u16, y: u16, color_index: u8) -> Result<()> {
         instructions::paint_pixel::handle_paint_pixel(ctx, x, y, color_index)
+    }
+
+    pub fn commit_gameplay_state(ctx: Context<CommitSharedState>, undelegate: bool) -> Result<()> {
+        instructions::commit_gameplay::handle_commit_shared(ctx, undelegate)
+    }
+
+    pub fn commit_and_undelegate_player(ctx: Context<CommitAndUndelegatePlayer>) -> Result<()> {
+        instructions::commit_gameplay::handle_commit_and_undelegate_player(ctx)
     }
 }

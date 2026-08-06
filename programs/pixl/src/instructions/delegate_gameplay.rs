@@ -34,7 +34,7 @@ pub struct DelegateAny<'info> {
     pub validator: Option<AccountInfo<'info>>,
 }
 
-pub fn delegate_any(ctx: Context<DelegateAny>, account_type: AccountType) -> Result<()> {
+pub fn handle_delegate_any(ctx: Context<DelegateAny>, account_type: AccountType) -> Result<()> {
     let validator = ctx.accounts.validator.as_ref().map(|v| v.key());
 
     match account_type {
@@ -139,10 +139,7 @@ pub struct DelegateCanvas<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// CHECK: This is the pre-initialized canvas account stored on `season`.
-    /// It must be owned by this program, match `season.canvas`, belong to the
-    /// supplied season, and sign because it is a standalone keypair-backed
-    /// account rather than a PDA. Those checks are enforced in `delegate_canvas`.
+    /// CHECK: keypair-backed canvas account, validated in `delegate_canvas`.
     #[account(mut, signer, del)]
     pub canvas: AccountInfo<'info>,
 
@@ -153,7 +150,7 @@ pub struct DelegateCanvas<'info> {
     pub validator: Option<AccountInfo<'info>>,
 }
 
-pub fn delegate_canvas(ctx: Context<DelegateCanvas>) -> Result<()> {
+pub fn handle_delegate_canvas(ctx: Context<DelegateCanvas>) -> Result<()> {
     let validator = ctx.accounts.validator.as_ref().map(|v| v.key());
     let canvas = load_canvas(&ctx.accounts.canvas, ctx.program_id)?;
 

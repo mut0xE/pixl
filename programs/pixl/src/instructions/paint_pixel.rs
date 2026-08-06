@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use session_keys::{session_auth_or, Session, SessionError, SessionTokenV2};
 
 use crate::{
     constants::{GAME_SEED, PLAYER_SEED, SEASON_PROFILE_SEED, SEASON_SEED, SEASON_STATS_SEED},
@@ -7,10 +8,10 @@ use crate::{
     PixlError,
 };
 
-#[derive(Accounts)]
+#[derive(Accounts, Session)]
 pub struct PaintPixel<'info> {
     #[account(mut)]
-    pub wallet: Signer<'info>,
+    pub payer: Signer<'info>,
 
     #[account(
         seeds = [GAME_SEED],
@@ -33,15 +34,14 @@ pub struct PaintPixel<'info> {
 
     #[account(
         mut,
-        seeds = [PLAYER_SEED, wallet.key().as_ref()],
+        seeds = [PLAYER_SEED, player.wallet.as_ref()],
         bump = player.bump,
-        constraint = player.wallet == wallet.key() @ PixlError::PlayerNotInitialized
     )]
     pub player: Account<'info, Player>,
 
     #[account(
         mut,
-        seeds = [SEASON_PROFILE_SEED, season.key().as_ref(), wallet.key().as_ref()],
+        seeds = [SEASON_PROFILE_SEED, season.key().as_ref(), player.wallet.as_ref()],
         bump = season_profile.bump,
         constraint = season_profile.season == season.key() @ PixlError::WrongSeason,
         constraint = season_profile.player == player.key() @ PixlError::SeasonProfileNotInitialized
@@ -55,19 +55,23 @@ pub struct PaintPixel<'info> {
         constraint = season_stats.season == season.key() @ PixlError::WrongSeason
     )]
     pub season_stats: Account<'info, SeasonStats>,
+
+    #[session(
+        signer = payer,
+        authority = player.wallet
+    )]
+    pub session_token: Option<Account<'info, SessionTokenV2>>,
 }
 
-pub fn handle_paint_pixel(
-    ctx: Context<PaintPixel>,
-    x: u16,
-    y: u16,
-    color_index: u8,
-) -> Result<()> {
+#[session_auth_or(
+    ctx.accounts.player.wallet == ctx.accounts.payer.key(),
+    SessionError::InvalidToken
+)]
+pub fn handle_paint_pixel(ctx: Context<PaintPixel>, x: u16, y: u16, color_index: u8) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let game = &ctx.accounts.game;
     let season = &ctx.accounts.season;
 
-    // Establish the full game -> season relationship before touching mutable state.
     require!(season.game == game.key(), PixlError::WrongGame);
     require!(game.current_season == season.key(), PixlError::WrongSeason);
     require!(
@@ -76,7 +80,6 @@ pub fn handle_paint_pixel(
     );
 
     let canvas = &mut ctx.accounts.canvas;
-    // Bound and palette checks happen before energy is consumed.
     require!(!canvas.frozen, PixlError::CanvasFrozen);
     require!(x < canvas.width, PixlError::InvalidCoordinate);
     require!(y < canvas.height, PixlError::InvalidCoordinate);
@@ -86,11 +89,9 @@ pub fn handle_paint_pixel(
     );
 
     let player = &mut ctx.accounts.player;
-    // Regenerate any accrued energy first so the placement check uses fresh state.
     player.refresh_energy(now)?;
     require!(player.available_energy > 0, PixlError::NotEnoughEnergy);
 
-    // Canvas pixels are stored row-major in a flat byte array.
     let index = usize::from(y)
         .checked_mul(usize::from(canvas.width))
         .and_then(|row_offset| row_offset.checked_add(usize::from(x)))
@@ -100,9 +101,11 @@ pub fn handle_paint_pixel(
         .pixels
         .get(index)
         .ok_or(error!(PixlError::InvalidCoordinate))?;
-    require!(old_color_index != color_index, PixlError::InvalidAccountState);
+    require!(
+        old_color_index != color_index,
+        PixlError::InvalidAccountState
+    );
 
-    // A successful paint updates the pixel first, then consumes one energy and credits stats.
     canvas.pixels[index] = color_index;
     player.available_energy = player
         .available_energy

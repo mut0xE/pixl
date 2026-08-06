@@ -28,6 +28,8 @@ pub enum PixlError {
     SeasonAlreadyActive,
     #[msg("The season has already been completed.")]
     SeasonAlreadyCompleted,
+    #[msg("The season has not ended yet.")]
+    SeasonNotEnded,
     #[msg("The canvas is frozen.")]
     CanvasFrozen,
     #[msg("The player is already registered.")]

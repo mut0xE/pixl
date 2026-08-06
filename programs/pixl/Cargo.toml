@@ -23,6 +23,8 @@ custom-panic = []
 [dependencies]
 anchor-lang = "0.32.1"
 ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat"] }
+magicblock-magic-program-api = { version = "0.10.1", default-features = false }
+session-keys = { version = "3.1.1", features = ["no-entrypoint"] }
 
 
 [lints.rust]

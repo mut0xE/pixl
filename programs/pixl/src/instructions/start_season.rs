@@ -56,9 +56,7 @@ pub struct StartSeason<'info> {
     )]
     pub season_stats: Account<'info, SeasonStats>,
 
-    /// CHECK: This account is pre-created client-side by the authority, must be
-    /// owned by this program, large enough for the requested canvas dimensions,
-    /// and still uninitialized when this instruction runs.
+    /// CHECK: pre-created client-side, validated by the `zero` constraint and size check below.
     #[account(zero)]
     pub canvas: Account<'info, Canvas>,
 
