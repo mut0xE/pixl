@@ -11,3 +11,4 @@ export * from "./session";
 export * from "./paint";
 export * from "./read";
 export * from "./crank";
+export * from "./status";

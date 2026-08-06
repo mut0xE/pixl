@@ -35,6 +35,7 @@ import {
   resolveBootstrapAccounts,
   buildInitPlayerIx,
   buildJoinSeasonIx,
+  deriveBootstrapStatus,
   type StartSeasonArgs,
 } from "./index";
 import { SystemProgram } from "@solana/web3.js";
@@ -436,5 +437,61 @@ describe("bootstrap builders", () => {
     expect(has(profile)).to.equal(true);
     const w = ix.keys.find((m) => m.pubkey.equals(wallet))!;
     expect(w.isSigner).to.equal(true);
+  });
+});
+
+describe("deriveBootstrapStatus", () => {
+  const base = {
+    connected: true,
+    game: {},
+    season: { completed: false, startTime: 0, endTime: 1000 } as any,
+    player: {},
+    seasonProfile: {},
+    session: { sessionSigner: "s", sessionToken: "t", validUntil: 999 },
+    now: 500,
+  };
+
+  it("disconnected when wallet not connected", () => {
+    expect(deriveBootstrapStatus({ ...base, connected: false })).to.equal("disconnected");
+  });
+  it("loading_game when game not yet fetched", () => {
+    expect(deriveBootstrapStatus({ ...base, game: null })).to.equal("loading_game");
+  });
+  it("no_active_season when current_season is zero", () => {
+    expect(deriveBootstrapStatus({ ...base, season: "zero" as any })).to.equal("no_active_season");
+  });
+  it("no_active_season when completed", () => {
+    expect(
+      deriveBootstrapStatus({ ...base, season: { completed: true, startTime: 0, endTime: 1000 } })
+    ).to.equal("no_active_season");
+  });
+  it("no_active_season when now outside window", () => {
+    expect(
+      deriveBootstrapStatus({ ...base, season: { completed: false, startTime: 0, endTime: 100 }, now: 500 })
+    ).to.equal("no_active_season");
+  });
+  it("loading_player when season loaded but player null-vs-loading unknown", () => {
+    // player === undefined means still loading
+    expect(deriveBootstrapStatus({ ...base, player: undefined as any })).to.equal("loading_player");
+  });
+  it("player_missing when player fetch returned null", () => {
+    expect(deriveBootstrapStatus({ ...base, player: null })).to.equal("player_missing");
+  });
+  it("loading_profile when profile still loading", () => {
+    expect(deriveBootstrapStatus({ ...base, seasonProfile: undefined as any })).to.equal("loading_profile");
+  });
+  it("season_profile_missing when profile null", () => {
+    expect(deriveBootstrapStatus({ ...base, seasonProfile: null })).to.equal("season_profile_missing");
+  });
+  it("session_missing when no session", () => {
+    expect(deriveBootstrapStatus({ ...base, session: null })).to.equal("session_missing");
+  });
+  it("session_expired when validUntil in the past", () => {
+    expect(
+      deriveBootstrapStatus({ ...base, session: { sessionSigner: "s", sessionToken: "t", validUntil: 100 }, now: 500 })
+    ).to.equal("session_expired");
+  });
+  it("ready when everything present and session valid", () => {
+    expect(deriveBootstrapStatus(base)).to.equal("ready");
   });
 });
