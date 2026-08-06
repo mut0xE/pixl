@@ -36,6 +36,7 @@ import {
   buildInitPlayerIx,
   buildJoinSeasonIx,
   deriveBootstrapStatus,
+  normalizeError,
   type StartSeasonArgs,
 } from "./index";
 import { SystemProgram } from "@solana/web3.js";
@@ -493,5 +494,28 @@ describe("deriveBootstrapStatus", () => {
   });
   it("ready when everything present and session valid", () => {
     expect(deriveBootstrapStatus(base)).to.equal("ready");
+  });
+});
+
+describe("normalizeError", () => {
+  it("detects user rejection", () => {
+    const r = normalizeError(new Error("User rejected the request"));
+    expect(r.title).to.equal("Signature rejected");
+  });
+  it("detects insufficient funds", () => {
+    const r = normalizeError(new Error("Attempt to debit an account but found no record of a prior credit"));
+    expect(r.title).to.equal("Insufficient SOL");
+  });
+  it("surfaces named anchor error codes", () => {
+    const r = normalizeError(new Error("custom program error: SeasonNotActive"));
+    expect(r.detail).to.contain("SeasonNotActive");
+  });
+  it("falls back to raw message", () => {
+    const r = normalizeError(new Error("boom"));
+    expect(r.detail).to.contain("boom");
+  });
+  it("handles non-Error values", () => {
+    const r = normalizeError("weird");
+    expect(r.detail).to.contain("weird");
   });
 });

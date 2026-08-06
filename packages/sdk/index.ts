@@ -12,3 +12,4 @@ export * from "./paint";
 export * from "./read";
 export * from "./crank";
 export * from "./status";
+export * from "./errors";
