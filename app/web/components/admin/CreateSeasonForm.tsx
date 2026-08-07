@@ -30,9 +30,7 @@ const DEFAULT_PALETTE = [
   "#3a86ff",
 ];
 
-// Season IDs are random u32s (matches the on-chain seed space and the test
-// harness's `uniqueSeasonId`), so a fresh season never collides with the PDA of
-// a past one. Not user-editable — regenerated on demand.
+// Random u32 season id so a fresh season never collides with a past PDA.
 function randomSeasonId(): number {
   return Math.floor(Math.random() * 0xffffffff) + 1;
 }
@@ -100,19 +98,14 @@ export function CreateSeasonForm({
     }
   }, [palette]);
 
-  // The on-chain program accepts any canvas up to MAX_CANVAS_PIXELS; we hold the
-  // admin UI to a 512×512 ceiling (the largest size still comfortably under the
-  // 10 MiB account cap and a reasonable rent cost).
+  // Hold the admin UI to a 512×512 ceiling (well under the 10 MiB account cap).
   const MAX_DIM = 512;
   const capacity = width * height;
   const badDims = width < 1 || height < 1 || width > MAX_DIM || height > MAX_DIM;
   const overCap = capacity > MAX_CANVAS_PIXELS;
   const badTimes = toUnix(endTime) <= toUnix(startTime);
 
-  // A canvas that no longer fits a single client-side createAccount is grown by
-  // splitting create + start into two sequential transactions (see the SDK
-  // plan). Surface the rent it will cost the admin so a 512² (~1.8 SOL) canvas
-  // is not a surprise.
+  // Surface the rent cost so a large (e.g. 512², ~1.8 SOL) canvas isn't a surprise.
   const [rentSol, setRentSol] = useState<number | null>(null);
   useEffect(() => {
     if (badDims) {
@@ -134,17 +127,14 @@ export function CreateSeasonForm({
     };
   }, [connection, width, height, badDims]);
 
-  // A blueprint reference is required on-chain (empty → InvalidImageReference,
-  // 6005) and capped at MAX_REFERENCE_LENGTH. Require a URI-shaped value so the
-  // failure never reaches simulation.
+  // Blueprint reference is required on-chain and capped at MAX_REFERENCE_LENGTH.
   const trimmedImage = imageUri.trim();
   const imageMissing = trimmedImage.length === 0;
   const imageTooLong = trimmedImage.length > MAX_REFERENCE_LENGTH;
   const imageBadScheme =
     trimmedImage.length > 0 && !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmedImage);
 
-  // First blocking problem, in field order — surfaced under the button and
-  // thrown (→ toast) if the form is somehow submitted anyway.
+  // First blocking problem, in field order.
   const validationError: string | null = !program
     ? "Connect the authority wallet"
     : !title.trim()
@@ -173,8 +163,7 @@ export function CreateSeasonForm({
 
   const disabled = validationError !== null;
 
-  // Clear the form back to a pristine state after a season is created so the
-  // next one starts fresh (new random id, empty text, default palette/times).
+  // Reset the form to a pristine state after a season is created.
   function resetForm() {
     setSeasonId(randomSeasonId());
     setTitle("");
@@ -211,10 +200,8 @@ export function CreateSeasonForm({
       },
     });
 
-    // Send each step in order. Large canvases split into two transactions
-    // (allocate, then start+delegate); the ephemeral canvas keypair co-signs the
-    // steps that reference it and is discarded once the loop finishes. Returns
-    // the final signature (the start+delegate tx) for the Explorer link.
+    // Send each step in order (large canvases split into allocate + start/delegate);
+    // returns the final signature for the Explorer link.
     let sig = "";
     for (const step of steps) {
       setState("awaiting_signature");
@@ -409,7 +396,6 @@ export function CreateSeasonForm({
   );
 }
 
-// Small clock glyph rendered next to the Start/End datetime fields.
 function ClockIcon() {
   return (
     <svg

@@ -22,21 +22,10 @@ export function BootstrapPanel() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { isAuthority } = useAdmin();
-  // The seasons roster is offered only once the player is fully bootstrapped:
-  // wallet connected, Player created, and its season profile created +
-  // delegated. Those are exactly the statuses that come after Join Season —
-  // the session/ready states — so the profile is known to exist by then.
-  const seasonsUnlocked =
-    status === "session_missing" ||
-    status === "session_expired" ||
-    status === "ready";
-  // Session secret lives in memory only for this render tree — never persisted,
-  // never logged. Only its public metadata (incl. nonce) goes to localStorage.
+  // Session secret lives in memory only; only its public metadata is persisted.
   const sessionSecretRef = useRef<Keypair | null>(null);
 
-  // Re-derive the in-memory secret from the persisted session on load, so a
-  // "ready" session (from localStorage) always has a usable signer after a
-  // page reload. Derivation is deterministic from wallet pubkey + nonce.
+  // Re-derive the in-memory secret from the persisted session on load.
   useEffect(() => {
     if (!wallet.publicKey || !session) {
       sessionSecretRef.current = null;
@@ -57,11 +46,6 @@ export function BootstrapPanel() {
         <h1>Pixl</h1>
         <div className="bootstrap-panel__nav">
           <HomeButton />
-          {seasonsUnlocked && (
-            <Link href="/seasons" className="header-link">
-              SEASONS
-            </Link>
-          )}
           {isAuthority && (
             <Link href="/admin" className="header-link">
               ADMIN
@@ -110,9 +94,7 @@ export function BootstrapPanel() {
               label="Create Player"
               onRun={async (setState) => {
                 setState("building");
-                // Create the Player PDA on L1 only — no delegation yet. It is
-                // delegated later in the Join Season step (same tx as
-                // init_season_profile, which needs a program-owned Player).
+                // Create the Player PDA on L1 only; delegation happens in Join Season.
                 return createPlayer(program, wallet, connection, () =>
                   setState("awaiting_signature")
                 );

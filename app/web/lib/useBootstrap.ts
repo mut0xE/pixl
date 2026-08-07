@@ -7,8 +7,6 @@ import {
   deriveGamePda,
   fetchGame,
   fetchSeason,
-  fetchPlayer,
-  fetchSeasonProfile,
   derivePlayerPda,
   deriveSeasonProfilePda,
   type BootstrapStatus,
@@ -32,7 +30,9 @@ export function useBootstrap() {
   const wallet = useWallet();
   const [status, setStatus] = useState<BootstrapStatus>("disconnected");
   const [game, setGame] = useState<any>(undefined);
-  const [season, setSeason] = useState<SeasonView | "zero" | null | undefined>(undefined);
+  const [season, setSeason] = useState<SeasonView | "zero" | null | undefined>(
+    undefined
+  );
   const [seasonAddress, setSeasonAddress] = useState<PublicKey | null>(null);
   const [session, setSession] = useState<SessionMeta | null>(null);
   const [player, setPlayer] = useState<any>(undefined);
@@ -52,13 +52,33 @@ export function useBootstrap() {
     setSeasonAddress(g.currentSeason);
     const s = await fetchOrNull(fetchSeason(program, g.currentSeason));
     const sv: SeasonView | null = s
-      ? { completed: s.completed, startTime: Number(s.startTime), endTime: Number(s.endTime) }
+      ? {
+          completed: s.completed,
+          startTime: Number(s.startTime),
+          endTime: Number(s.endTime),
+        }
       : null;
     setSeason(sv);
+    // "Player present" means the account merely exists (any owner); an undelegated
+    // Player is a valid intermediate state that should advance to the "join" step.
     const [playerPda] = derivePlayerPda(program.programId, pk);
-    setPlayer(await fetchOrNull(fetchPlayer(program, playerPda)));
-    const [profilePda] = deriveSeasonProfilePda(program.programId, g.currentSeason, pk);
-    setProfile(await fetchOrNull(fetchSeasonProfile(program, profilePda)));
+    const playerInfo = await program.provider.connection.getAccountInfo(
+      playerPda,
+      "confirmed"
+    );
+    setPlayer(playerInfo ?? null);
+    const [profilePda] = deriveSeasonProfilePda(
+      program.programId,
+      g.currentSeason,
+      pk
+    );
+    // Presence, not decodability: a delegated profile is owned by the delegation
+    // program on L1 and can't be typed-decoded, but existence means joined.
+    const profileInfo = await program.provider.connection.getAccountInfo(
+      profilePda,
+      "confirmed"
+    );
+    setProfile(profileInfo ?? null);
     setSession(loadSessionMeta(pk.toBase58()));
   }, [program, wallet.publicKey?.toBase58()]);
 

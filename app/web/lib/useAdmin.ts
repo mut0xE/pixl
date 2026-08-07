@@ -17,11 +17,7 @@ export type AdminState = {
   refetch: () => Promise<void>;
 };
 
-/**
- * Resolves the on-chain `Game` account and decides whether the connected wallet
- * is the authority. The admin dashboard gates every action on `isAuthority`, so
- * a non-authority (or disconnected) wallet never sees a live control.
- */
+// Resolves the `Game` account and whether the connected wallet is its authority.
 export function useAdmin(): AdminState {
   const program = usePixlProgram();
   const { publicKey } = useWallet();

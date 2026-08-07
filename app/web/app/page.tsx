@@ -1,9 +1,5 @@
-import { BootstrapPanel } from "../components/BootstrapPanel";
+import { HomeView } from "../components/HomeView";
 
 export default function Home() {
-  return (
-    <main>
-      <BootstrapPanel />
-    </main>
-  );
+  return <HomeView />;
 }

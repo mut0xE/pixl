@@ -9,8 +9,8 @@ import {
   type SeasonSummary,
 } from "../../../../packages/sdk";
 import { usePixlProgram } from "../../lib/program";
+import { sendIx, sendErIxSigned, ensureSessionSigner } from "../../lib/actions";
 import { getErConnection } from "../../lib/er";
-import { sendIx } from "../../lib/actions";
 import { TxButton } from "../TxButton";
 
 export function SeasonLifecyclePanel({
@@ -30,27 +30,64 @@ export function SeasonLifecyclePanel({
   const seasonPk = new PublicKey(season.address);
   const canvasPk = new PublicKey(season.canvas);
 
+  // A completed season is already committed/undelegated/ended; show steps as done.
+  const ended = season.completed || season.status === "ended";
+
+  const DoneTag = () => <span className="admin-step__done">DONE</span>;
+
   function requireCtx() {
     if (!program) throw new Error("Connect the authority wallet");
     if (!wallet.publicKey) throw new Error("Wallet not connected");
     return { program, authority: wallet.publicKey };
   }
 
-  // commit_gameplay_state runs on the Ephemeral Rollup; build offline, submit
-  // over the ER connection signed by the connected admin wallet.
+  // commit_gameplay_state runs on the ER, so it's signed by a funded session key
+  // (the wallet rejects the ER blockhash) set as the commit payer.
   const commit =
     (undelegate: boolean) => async (setState: (s: any) => void) => {
       const { program, authority } = requireCtx();
       const [seasonStats] = deriveSeasonStatsPda(program.programId, seasonPk);
-      const ix = await buildCommitGameplayStateIx(program, {
-        authority,
-        season: seasonPk,
-        seasonStats,
-        canvas: canvasPk,
-        undelegate,
-      });
-      setState("awaiting_signature");
-      return sendIx(getErConnection(), wallet, [ix]);
+
+      // Preferred path: sign the ER commit with a session key (commit accepts any
+      // signer as `payer`), so the wallet never sees the ER blockhash.
+      try {
+        const signer = await ensureSessionSigner(
+          connection,
+          wallet,
+          program.programId,
+          () => setState("awaiting_signature")
+        );
+        const ix = await buildCommitGameplayStateIx(program, {
+          authority: signer.publicKey,
+          season: seasonPk,
+          seasonStats,
+          canvas: canvasPk,
+          undelegate,
+        });
+        setState("confirming");
+        // Skip preflight: ER commit intents CPI into the magic program, which
+        // base-layer simulation doesn't model (same as the paint path).
+        return await sendErIxSigned(signer, [ix], { skipPreflight: true });
+      } catch (err) {
+        // A reverted ER tx carries a signature — that's a real program error, not
+        // a session problem, so surface it instead of re-signing via the fallback.
+        if ((err as { signature?: string })?.signature) throw err;
+        // Fallback: no usable session — sign the ER commit with the wallet
+        // directly (works on-chain, but the wallet warns about a network mismatch).
+        console.warn("Session commit failed, falling back to wallet ER sign", err);
+        const ix = await buildCommitGameplayStateIx(program, {
+          authority,
+          season: seasonPk,
+          seasonStats,
+          canvas: canvasPk,
+          undelegate,
+        });
+        setState("awaiting_signature");
+        return sendIx(getErConnection(), wallet, [ix], [], {
+          skipPreflight: true,
+          cluster: "er",
+        });
+      }
     };
 
   const end = async (setState: (s: any) => void) => {
@@ -72,8 +109,9 @@ export function SeasonLifecyclePanel({
         <span className="admin-card__id">#{season.id}</span>
       </h3>
       <p className="admin-card__note">
-        Finalize the shared season state. Run these in order on the delegated
-        season.
+        {ended
+          ? "This season is ended — committed, undelegated and frozen. Steps are shown for reference."
+          : "Finalize the shared season state. Run these in order on the delegated season."}
       </p>
 
       <ol className="admin-steps">
@@ -86,11 +124,14 @@ export function SeasonLifecyclePanel({
                 Snapshot Canvas + SeasonStats to L1, keep painting (ER).
               </span>
             </div>
+            {ended && <DoneTag />}
           </div>
           <TxButton
             label="Commit final state"
             onRun={commit(false)}
             onDone={onChanged}
+            disabled={ended}
+            explorer="er"
           />
         </li>
 
@@ -103,11 +144,14 @@ export function SeasonLifecyclePanel({
                 Final snapshot, return canvas + stats ownership to L1 (ER).
               </span>
             </div>
+            {ended && <DoneTag />}
           </div>
           <TxButton
             label="Undelegate shared state"
             onRun={commit(true)}
             onDone={onChanged}
+            disabled={ended}
+            explorer="er"
           />
         </li>
 
@@ -120,8 +164,13 @@ export function SeasonLifecyclePanel({
                 Mark completed and freeze the canvas (L1). Irreversible.
               </span>
             </div>
+            {ended && <DoneTag />}
           </div>
-          {!confirmEnd ? (
+          {ended ? (
+            <button className="canvas-btn" disabled>
+              Season ended
+            </button>
+          ) : !confirmEnd ? (
             <button
               className="canvas-btn canvas-btn--danger"
               onClick={() => setConfirmEnd(true)}

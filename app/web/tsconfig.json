@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2020",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "es2020"
-    ],
+    "lib": ["dom", "dom.iterable", "es2020"],
     "jsx": "preserve",
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -21,20 +17,11 @@
       }
     ],
     "paths": {
-      "@sdk/*": [
-        "../../packages/sdk/*"
-      ]
+      "@sdk/*": ["../../packages/sdk/*"]
     },
     "allowJs": true,
     "isolatedModules": true
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

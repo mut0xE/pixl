@@ -5,10 +5,7 @@ import {
   type CanvasSnapshot,
 } from "../../../packages/sdk";
 
-// Browser-only snapshot download. The pure grid → RGBA / JSON work lives in the
-// SDK (`snapshot.ts`); this module only rasterizes to a PNG via a DOM canvas and
-// triggers the file downloads.
-
+// Browser-only snapshot download; the pure grid → RGBA / JSON work is in the SDK.
 function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

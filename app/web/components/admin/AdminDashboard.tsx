@@ -1,133 +1,60 @@
 "use client";
-import { useMemo, useState } from "react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { useWallet } from "@solana/wallet-adapter-react";
-import type { SeasonSummary } from "../../../../packages/sdk";
-import { useAdmin } from "../../lib/useAdmin";
+import { useMemo } from "react";
+import Link from "next/link";
+import { summarizeSeasonCounts } from "../../../../packages/sdk";
 import { useSeasons } from "../../lib/useSeasons";
-import { CreateSeasonForm } from "./CreateSeasonForm";
-import { SeasonLifecyclePanel } from "./SeasonLifecyclePanel";
-import { ExportSnapshot } from "./ExportSnapshot";
+import { AdminShell } from "./AdminShell";
 
-function shortKey(k: string): string {
-  return `${k.slice(0, 4)}…${k.slice(-4)}`;
-}
-
-function AccessDenied({
-  reason,
-  authority,
-}: {
-  reason: string;
-  authority: string | null;
-}) {
-  return (
-    <div className="admin-denied">
-      <h1 className="admin-denied__title">ADMIN CONSOLE</h1>
-      <p className="admin-denied__msg">{reason}</p>
-      {authority && (
-        <p className="admin-denied__hint">
-          Authority: <code>{shortKey(authority)}</code>
-        </p>
-      )}
-      <WalletMultiButton />
-    </div>
-  );
-}
-
+// Admin landing: a fork between creating a new season and managing the roster.
 export function AdminDashboard() {
-  const { connected } = useWallet();
-  const { game, authority, isAuthority, loading, error, refetch } = useAdmin();
-  const { seasons, refetch: refetchSeasons } = useSeasons();
-  const [selected, setSelected] = useState<string | null>(null);
-
-  const selectedSeason: SeasonSummary | null = useMemo(
-    () => seasons?.find((s) => s.address === selected) ?? null,
-    [seasons, selected]
+  const { seasons } = useSeasons();
+  const counts = useMemo(
+    () => (seasons ? summarizeSeasonCounts(seasons) : null),
+    [seasons]
   );
 
-  if (!connected) {
-    return (
-      <AccessDenied
-        reason="Connect the game authority wallet to continue."
-        authority={authority?.toBase58() ?? null}
-      />
-    );
-  }
-  if (loading && !authority) {
-    return (
-      <div className="admin-denied">
-        <p className="admin-denied__msg">
-          <span className="spinner" aria-hidden /> Resolving game authority…
-        </p>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <AccessDenied reason={`Could not load Game: ${error}`} authority={null} />
-    );
-  }
-  if (!isAuthority || !game) {
-    return (
-      <AccessDenied
-        reason="This wallet is not the game authority. Access denied."
-        authority={authority?.toBase58() ?? null}
-      />
-    );
-  }
-
-  const refetchAll = () => {
-    void refetch();
-    void refetchSeasons();
-  };
-
   return (
-    <div className="admin-console">
-      <header className="admin-console__bar">
-        <h1 className="admin-console__title">ADMIN CONSOLE</h1>
-        <div className="admin-console__who">
-          <span className="admin-badge">AUTHORITY</span>
-          <code>{authority ? shortKey(authority.toBase58()) : "—"}</code>
-          <WalletMultiButton />
+    <AdminShell title="ADMIN CONSOLE" back={{ href: "/", label: "PLAY" }}>
+      {() => (
+        <div className="admin-actions">
+          <Link href="/admin/seasons/new" className="admin-action">
+            <span className="admin-action__index">01</span>
+            <span className="admin-action__glyph" aria-hidden>
+              ＋
+            </span>
+            <span className="admin-action__title">Create season</span>
+            <span className="admin-action__note">
+              Init Season + Canvas + SeasonStats and delegate to the Ephemeral
+              Rollup — one transaction.
+            </span>
+            <span className="admin-action__go">Open form →</span>
+          </Link>
+
+          <Link href="/admin/seasons" className="admin-action">
+            <span className="admin-action__index">02</span>
+            <span className="admin-action__glyph" aria-hidden>
+              ▦
+            </span>
+            <span className="admin-action__title">Manage seasons</span>
+            <span className="admin-action__note">
+              Browse the roster, inspect contributions, and run each season’s
+              commit / undelegate / end lifecycle.
+            </span>
+            <span className="admin-action__stats">
+              {counts ? (
+                <>
+                  <b>{counts.active}</b> active&nbsp;·&nbsp;
+                  <b>{counts.upcoming}</b> upcoming&nbsp;·&nbsp;
+                  <b>{counts.ended}</b> ended
+                </>
+              ) : (
+                <span className="skeleton skeleton--line" style={{ width: 160 }} />
+              )}
+            </span>
+            <span className="admin-action__go">Open roster →</span>
+          </Link>
         </div>
-      </header>
-
-      <CreateSeasonForm game={game} onCreated={refetchAll} />
-
-      <section className="admin-card">
-        <h3 className="admin-card__heading">MANAGE SEASON</h3>
-        {!seasons ? (
-          <p className="admin-card__note">
-            <span className="spinner" aria-hidden /> Loading seasons…
-          </p>
-        ) : seasons.length === 0 ? (
-          <p className="admin-card__note">No seasons yet.</p>
-        ) : (
-          <select
-            className="admin-select"
-            value={selected ?? ""}
-            onChange={(e) => setSelected(e.target.value || null)}
-          >
-            <option value="">Select a season…</option>
-            {seasons.map((s) => (
-              <option key={s.address} value={s.address}>
-                #{s.id} · {s.title || "Untitled"} · {s.status}
-              </option>
-            ))}
-          </select>
-        )}
-      </section>
-
-      {selectedSeason && (
-        <>
-          <SeasonLifecyclePanel
-            game={game}
-            season={selectedSeason}
-            onChanged={refetchAll}
-          />
-          <ExportSnapshot season={selectedSeason} />
-        </>
       )}
-    </div>
+    </AdminShell>
   );
 }

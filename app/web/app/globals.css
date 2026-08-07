@@ -733,6 +733,116 @@ a:focus-visible {
   background: var(--err);
 }
 
+/* Community Contribution card — shares the rail's HUD vocabulary but leads with
+   the signal accent to read as "the collective" against the green energy HUD. */
+.community-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--grid);
+  border-top: 2px solid var(--signal);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--signal) 7%, var(--ink-raised)),
+    var(--ink-raised) 62%
+  );
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.9);
+}
+.community-card[data-state="syncing"] {
+  opacity: 0.7;
+}
+.community-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.community-card__eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+.community-card__rank {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+}
+.community-card__syncing {
+  margin: 0;
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+
+.community-card__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.community-card__progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.community-card__progress-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+.community-card__progress-pct {
+  font-size: 12px;
+  color: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+.community-card__bar {
+  height: 7px;
+  background: var(--grid);
+  overflow: hidden;
+}
+.community-card__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--signal) 70%, transparent);
+  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.community-card__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid);
+}
+.community-card__stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.community-card__stat dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+}
+.community-card__stat dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+.community-card__stat--accent dd {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--signal);
+}
+
 .canvas-bar__zoom {
   display: flex;
   align-items: center;

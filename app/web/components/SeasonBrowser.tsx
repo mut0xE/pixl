@@ -1,7 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { u32ToHex, type SeasonSummary } from "../../../packages/sdk";
+import { type SeasonSummary } from "../../../packages/sdk";
 import { useSeasons, useSeasonDetail } from "../lib/useSeasons";
 import { PixlCanvas } from "./PixlCanvas";
 
@@ -24,53 +24,7 @@ function fmtDate(unix: number): string {
   });
 }
 
-function SeasonCard({
-  season,
-  onOpen,
-  index = 0,
-}: {
-  season: SeasonSummary;
-  onOpen: () => void;
-  index?: number;
-}) {
-  return (
-    <button
-      className="season-card reveal"
-      data-status={season.status}
-      onClick={onOpen}
-      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
-    >
-      <div className="season-card__top">
-        <span className="season-card__status" data-status={season.status}>
-          {STATUS_LABEL[season.status]}
-        </span>
-        <span className="season-card__id">#{season.id}</span>
-      </div>
-      <h3 className="season-card__title">{season.title || "Untitled"}</h3>
-      <div className="season-card__palette">
-        {season.palette.slice(0, 12).map((c, i) => (
-          <span
-            key={i}
-            className="season-card__swatch"
-            style={{ background: u32ToHex(c).slice(0, 7) }}
-          />
-        ))}
-      </div>
-      <div className="season-card__meta">
-        <span>{fmtDate(season.startTime)}</span>
-        <span className="season-card__arrow">→</span>
-      </div>
-    </button>
-  );
-}
-
-function SeasonDetailView({
-  season,
-  onBack,
-}: {
-  season: SeasonSummary;
-  onBack: () => void;
-}) {
+function SeasonDetailView({ season }: { season: SeasonSummary }) {
   const { detail, loading } = useSeasonDetail(season.address);
   const seasonPk = useMemo(
     () => new PublicKey(season.address),
@@ -87,9 +41,6 @@ function SeasonDetailView({
   return (
     <div className="season-detail">
       <div className="season-detail__head">
-        <button className="canvas-btn" onClick={onBack}>
-          ← BACK
-        </button>
         <div>
           <h2 className="season-detail__title">
             {season.title}{" "}
@@ -103,7 +54,7 @@ function SeasonDetailView({
       </div>
 
       <div className="season-detail__grid">
-        <PixlCanvas seasonAddress={seasonPk} />
+        <PixlCanvas seasonAddress={seasonPk} readOnly />
 
         <aside className="season-panel">
           <h4 className="season-panel__heading">CONTRIBUTIONS</h4>
@@ -146,16 +97,12 @@ function SeasonDetailView({
 
 export function SeasonBrowser() {
   const { seasons, loading, error, refetch } = useSeasons();
-  const [selected, setSelected] = useState<string | null>(null);
 
-  // Player-facing view: only the live season(s) matter here. History and
-  // upcoming seasons are an admin concern, so we filter to active only.
+  // Player-facing view: drop straight into the active season (history is admin-only).
   const active = useMemo(
-    () => (seasons ?? []).filter((s) => s.status === "active"),
+    () => (seasons ?? []).find((s) => s.status === "active") ?? null,
     [seasons]
   );
-
-  const current = seasons?.find((s) => s.address === selected) ?? null;
 
   if (error) {
     return (
@@ -168,48 +115,17 @@ export function SeasonBrowser() {
     );
   }
 
-  if (current) {
+  if (loading && !seasons) {
     return (
-      <SeasonDetailView season={current} onBack={() => setSelected(null)} />
+      <div className="season-browser__message" aria-busy>
+        <span className="skeleton skeleton--block" />
+      </div>
     );
   }
 
-  return (
-    <div className="season-browser">
-      <div className="season-browser__bar">
-        <span className="season-browser__heading">ACTIVE SEASON</span>
-      </div>
+  if (!active) {
+    return <p className="bootstrap-panel__hint">No active season right now.</p>;
+  }
 
-      {loading && !seasons ? (
-        <SeasonGridSkeleton />
-      ) : active.length === 0 ? (
-        <p className="bootstrap-panel__hint">No active season right now.</p>
-      ) : (
-        <div className="season-grid">
-          {active.map((s, i) => (
-            <SeasonCard
-              key={s.address}
-              season={s}
-              index={i}
-              onOpen={() => setSelected(s.address)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SeasonGridSkeleton() {
-  return (
-    <div className="season-grid" aria-busy>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="season-card season-card--skeleton">
-          <span className="skeleton skeleton--line" style={{ width: "40%" }} />
-          <span className="skeleton skeleton--line" style={{ width: "70%" }} />
-          <span className="skeleton skeleton--block" />
-        </div>
-      ))}
-    </div>
-  );
+  return <SeasonDetailView season={active} />;
 }

@@ -14,9 +14,16 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--jetbrains-font",
 });
 
-export const metadata = { title: "Pixl", description: "MagicBlock pixel canvas" };
+export const metadata = {
+  title: "Pixl",
+  description: "MagicBlock pixel canvas",
+};
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body className={`${silkscreen.variable} ${jetbrainsMono.variable}`}>

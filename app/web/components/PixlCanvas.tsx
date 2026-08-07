@@ -17,15 +17,13 @@ import { useErProgram, erExplorerTxUrl } from "../lib/er";
 import { usePainting } from "../lib/usePainting";
 import { PalettePicker } from "./PalettePicker";
 import { PaintEnergyHud } from "./PaintEnergyHud";
+import { CommunityCard } from "./CommunityCard";
+import { useContribution } from "../lib/useContribution";
 import { ShareGame } from "./ShareGame";
 import { CopyKey } from "./CopyKey";
 
-// Interactive painting renderer. A 1:1 offscreen texture holds the pixel art;
-// the visible canvas draws it with a camera transform (nearest-neighbor, zoom +
-// pan). Authoritative pixels come from an ER subscription (via usePainting);
-// optimistic paints patch single texture pixels immediately, with no rebuild
-// and no whole-app refetch. A click paints; a drag pans.
-
+// Interactive painting renderer: a 1:1 offscreen texture drawn through a camera
+// transform (nearest-neighbor zoom + pan). Click paints, drag pans.
 const WHEEL_ZOOM_STEP = 1.15;
 const BUTTON_ZOOM_STEP = 1.4;
 const CLICK_SLOP = 4; // px of movement below which a mouseup counts as a click
@@ -71,15 +69,17 @@ export function PixlCanvas({
   session = null,
   sessionSecret = null,
   shareable = false,
+  readOnly = false,
 }: {
   seasonAddress: PublicKey | null;
   // Painting props — omitted for read-only historical views (SeasonBrowser).
   wallet?: PublicKey | null;
   session?: SessionMeta | null;
   sessionSecret?: Keypair | null;
-  // Show a Share button in the HUD (the SeasonBrowser detail view has its own
-  // Share button in the header, so it leaves this off to avoid a duplicate).
+  // Show a Share button in the HUD.
   shareable?: boolean;
+  // Public spectator view: strip all painting chrome and never allow paints.
+  readOnly?: boolean;
 }) {
   const { data, loading, error, refetch } = useCanvasData(seasonAddress);
   const erProgram = useErProgram(sessionSecret);
@@ -97,6 +97,8 @@ export function PixlCanvas({
     recentTxs,
   } = usePainting({ erProgram, data, wallet, seasonAddress, session });
 
+  const contribution = useContribution(seasonAddress, wallet, sessionSecret);
+
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const texRef = useRef<Tex | null>(null);
@@ -108,7 +110,8 @@ export function PixlCanvas({
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [zoomLabel, setZoomLabel] = useState(1);
 
-  const paintable = Boolean(erProgram && session && data && !data.frozen);
+  const paintable =
+    !readOnly && Boolean(erProgram && session && data && !data.frozen);
 
   // Track the container size so the canvas is crisp on resize / DPR changes.
   useLayoutEffect(() => {
@@ -122,8 +125,7 @@ export function PixlCanvas({
     return () => ro.disconnect();
   }, []);
 
-  // Rebuild the texture and require a fresh auto-fit whenever a new snapshot
-  // loads (e.g. a new season's canvas). Per-pixel updates never come through here.
+  // Rebuild the texture + re-fit whenever a new snapshot loads.
   useEffect(() => {
     texRef.current = data ? buildTexture(data.pixels, data) : null;
     fittedRef.current = false;
@@ -131,8 +133,7 @@ export function PixlCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // Patch only the dirty pixels (optimistic paints, reverts, other players'
-  // paints) into the existing texture, then redraw. No rebuild.
+  // Patch only the dirty pixels into the existing texture, then redraw.
   useEffect(() => {
     const tex = texRef.current;
     if (!tex || !data) return;
@@ -209,8 +210,7 @@ export function PixlCanvas({
       ctx.stroke();
     }
 
-    // The hovered cell is rendered as a DOM overlay (see `paint-cursor` below)
-    // so it can carry the live color preview + energy readout.
+    // The hovered cell is a DOM overlay (`paint-cursor` below), not drawn here.
   }
 
   function applyCamera(next: Camera) {
@@ -225,9 +225,8 @@ export function PixlCanvas({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
-  // Wheel-to-zoom needs preventDefault to stop the page scrolling, but React
-  // attaches wheel handlers as passive (where preventDefault is a no-op and
-  // logs a console error). Bind a native non-passive listener instead.
+  // Wheel-to-zoom needs a native non-passive listener so preventDefault works
+  // (React's synthetic wheel handlers are passive).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -282,9 +281,7 @@ export function PixlCanvas({
     if (data) applyCamera(fitCamera(viewport, data));
   }
 
-  // Only surface the blocking error screen when we have nothing to show. If a
-  // cached snapshot is already painted, keep it up and let the background retry
-  // reconcile — a transient fetch failure shouldn't blank the canvas.
+  // Only show the blocking error screen when there's no cached snapshot to keep up.
   if (error && !data) {
     return (
       <div className="canvas-stage canvas-stage--message">
@@ -368,7 +365,7 @@ export function PixlCanvas({
         {loading && <span className="canvas-badge">syncing…</span>}
       </div>
 
-      {data && (
+      {data && !readOnly && (
         <PalettePicker
           palette={data.palette}
           selected={selectedColor}
@@ -419,9 +416,16 @@ export function PixlCanvas({
       </div>
      </div>
 
+      {!readOnly && (
       <aside className="pixl-rail">
         {paintable && (
           <PaintEnergyHud energy={energyState} session={session} />
+        )}
+        {wallet && (
+          <CommunityCard
+            contribution={contribution}
+            season={data?.season ?? null}
+          />
         )}
         <div className="tx-feed">
           {recentTxs.length === 0 ? (
@@ -493,6 +497,7 @@ export function PixlCanvas({
           )}
         </div>
       </aside>
+      )}
     </div>
   );
 }

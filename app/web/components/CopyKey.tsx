@@ -6,8 +6,7 @@ function shortKey(k: string): string {
   return `${k.slice(0, 4)}…${k.slice(-4)}`;
 }
 
-// A base58 pubkey rendered truncated, click-to-copy the full value. Confirms via
-// the toast stack and flashes a brief inline "copied" state on the glyph.
+// A truncated pubkey; click-to-copy the full value, with toast + inline feedback.
 export function CopyKey({
   value,
   label,

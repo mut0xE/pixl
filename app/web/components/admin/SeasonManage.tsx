@@ -27,8 +27,7 @@ function fmt(unix: number): string {
 
 type Tab = "details" | "lifecycle";
 
-// Per-season workspace, reached from the roster. Two tabs: Details reads the
-// on-chain contributions; Lifecycle runs the commit / undelegate / end flow.
+// Per-season workspace: a Details tab (contributions) and a Lifecycle tab.
 export function SeasonManage() {
   const params = useParams<{ address: string }>();
   const address = params?.address ?? null;

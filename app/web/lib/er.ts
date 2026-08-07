@@ -10,9 +10,8 @@ import {
 import type { Pixl } from "../../../target/types/pixl";
 import pixlIdl from "../../../target/idl/pixl.json";
 
-// Minimal anchor Wallet backed by the in-memory session keypair. Anchor's own
-// `Wallet` is the Node keypair wallet (pulls in `fs`) and isn't exported to the
-// browser bundle, so we implement the interface directly.
+// Minimal anchor Wallet backed by the in-memory session keypair (anchor's own
+// Node wallet pulls in `fs` and isn't browser-safe).
 function sessionWallet(keypair: Keypair): Wallet {
   return {
     publicKey: keypair.publicKey,
@@ -36,9 +35,7 @@ function sessionWallet(keypair: Keypair): Wallet {
   };
 }
 
-// Ephemeral Rollup endpoint. Paint transactions and authoritative account
-// subscriptions live here (the delegated Canvas/Player clones). The L1 RPC in
-// providers.tsx is only used for the pre-delegation snapshot and settlement.
+// Ephemeral Rollup endpoint: paints and delegated Canvas/Player clones live here.
 const ER_RPC =
   process.env.NEXT_PUBLIC_ER_RPC ?? "https://devnet.magicblock.app";
 
@@ -50,11 +47,37 @@ export function getErConnection(): Connection {
   return erConnection;
 }
 
-/**
- * Anchor program bound to the ER connection and signed by the in-memory session
- * keypair — the same shape the e2e tests build via `getWalletContext`. Returns
- * null until a session secret is available, so callers can gate painting.
- */
+// Explorer URL for an ER transaction (a custom cluster via `customUrl`).
+export function erExplorerTxUrl(signature: string): string {
+  const cluster = encodeURIComponent(ER_RPC);
+  return `https://explorer.solana.com/tx/${signature}?cluster=custom&customUrl=${cluster}`;
+}
+
+// Read-only wallet for ER account fetches; throws if anything tries to sign.
+function readOnlyWallet(): Wallet {
+  const dummy = Keypair.generate();
+  const reject = () => {
+    throw new Error("read-only ER program cannot sign transactions");
+  };
+  return {
+    publicKey: dummy.publicKey,
+    payer: dummy,
+    signTransaction: reject as Wallet["signTransaction"],
+    signAllTransactions: reject as Wallet["signAllTransactions"],
+  };
+}
+
+// Anchor program bound to the ER connection for read-only account fetches.
+export function useErReadProgram(): Program<Pixl> {
+  return useMemo(() => {
+    const provider = new AnchorProvider(getErConnection(), readOnlyWallet(), {
+      commitment: "confirmed",
+    });
+    return new Program(pixlIdl as any, provider) as Program<Pixl>;
+  }, []);
+}
+
+// ER-bound anchor program signed by the session keypair; null until one exists.
 export function useErProgram(
   sessionSecret: Keypair | null
 ): Program<Pixl> | null {
