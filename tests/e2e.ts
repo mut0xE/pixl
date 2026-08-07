@@ -16,7 +16,8 @@ import {
   derivePlayerAddress,
   deriveSeasonAddressSet,
   deriveSeasonProfileAddress,
-  ensureJoinedSeason,
+  ensureSeasonProfileInitialized,
+  joinSeasonOnEr,
   ensureGameInitialized,
   ensurePlayerInitialized,
   createFundedPlayer,
@@ -186,9 +187,7 @@ describe("pixl success paths", () => {
       {
         title: "init_player",
         program: admin.program,
-        refs: [
-          { label: "player", kind: "player", address: world.playerPda },
-        ],
+        refs: [{ label: "player", kind: "player", address: world.playerPda }],
         source: "L1",
       },
       () =>
@@ -220,17 +219,12 @@ describe("pixl success paths", () => {
     expect(playerState.cooldown).to.equal(true);
   });
 
-  it("join_season: player creates their season profile", async () => {
+  it("init_season_profile: player creates their season profile on L1", async () => {
     const signature = await withAccountDiff(
       {
-        title: "join_season",
+        title: "init_season_profile",
         program: admin.program,
         refs: [
-          {
-            label: "seasonStats",
-            kind: "seasonStats",
-            address: world.seasonStatsPda,
-          },
           {
             label: "seasonProfile",
             kind: "seasonProfile",
@@ -240,32 +234,33 @@ describe("pixl success paths", () => {
         source: "L1",
       },
       () =>
-        ensureJoinedSeason(
+        ensureSeasonProfileInitialized(
           admin,
           world.playerWallet,
           world.playerPda,
           world.seasonPda,
-          world.seasonStatsPda,
           world.seasonProfilePda
         )
     );
 
-    const seasonProfileInfo = await admin.provider.connection.getAccountInfo(
-      world.seasonProfilePda,
-      "confirmed"
-    );
+    const seasonProfile = (await admin.program.account.seasonProfile.fetch(
+      world.seasonProfilePda
+    )) as any;
     const seasonStats = (await admin.program.account.seasonStats.fetch(
       world.seasonStatsPda
     )) as any;
 
-    logSection("join_season", {
+    logSection("init_season_profile", {
       signature,
       seasonProfile: world.seasonProfilePda.toBase58(),
       participantCount: seasonStats.participantCount.toString(),
     });
 
-    expect(seasonProfileInfo).to.not.equal(null);
-    expect(seasonStats.participantCount.toString()).to.equal("1");
+    // Profile is created but not yet joined: joined_at is the 0 sentinel and
+    // participant_count stays untouched (the ER join happens after delegation).
+    expect(seasonProfile.player.equals(world.playerPda)).to.equal(true);
+    expect(seasonProfile.joinedAt.toString()).to.equal("0");
+    expect(seasonStats.participantCount.toString()).to.equal("0");
   });
 
   it("delegate_canvas: admin delegates the client-created canvas", async function () {
@@ -519,6 +514,58 @@ describe("pixl success paths", () => {
     expect(
       (seasonProfileStatus as any).season.equals(world.seasonPda)
     ).to.equal(true);
+  });
+
+  it("join_season: delegated player joins on the ER", async function () {
+    if (!hasMagicBlockEnv()) {
+      this.skip();
+    }
+
+    const erPlayer = getWalletContext(world.erRpcUrl!, world.playerWallet);
+    const joinRefs: AccountRef[] = [
+      {
+        label: "seasonStats",
+        kind: "seasonStats",
+        address: world.seasonStatsPda,
+      },
+      {
+        label: "seasonProfile",
+        kind: "seasonProfile",
+        address: world.seasonProfilePda,
+      },
+    ];
+
+    const signature = await withAccountDiff(
+      {
+        title: "join_season (ER)",
+        program: erPlayer.program,
+        refs: joinRefs,
+        source: "ER",
+      },
+      () =>
+        joinSeasonOnEr(
+          erPlayer,
+          world.playerWallet,
+          world.playerPda,
+          world.seasonPda,
+          world.seasonStatsPda,
+          world.seasonProfilePda
+        )
+    );
+
+    const [seasonStats, seasonProfile] = (await Promise.all([
+      erPlayer.program.account.seasonStats.fetch(world.seasonStatsPda),
+      erPlayer.program.account.seasonProfile.fetch(world.seasonProfilePda),
+    ])) as any;
+
+    logSection("join_season (ER)", {
+      signature,
+      erRpcUrl: world.erRpcUrl,
+      participantCount: seasonStats.participantCount.toString(),
+    });
+
+    expect(seasonStats.participantCount.toString()).to.equal("1");
+    expect(seasonProfile.joinedAt.toString()).to.not.equal("0");
   });
 
   it("paint_pixel: delegated player paints on the ER", async function () {
@@ -841,12 +888,8 @@ describe("pixl success paths", () => {
       })
       .rpc();
 
-    await waitForAccountOwner(
-      admin.provider.connection,
-      world.playerPda,
-      admin.program.programId,
-      "player back under program on L1"
-    );
+    // Only the per-season profile is undelegated. The player PDA is committed
+    // (state flushed to L1) but stays delegated for the next season.
     await waitForAccountOwner(
       admin.provider.connection,
       world.seasonProfilePda,
@@ -854,7 +897,12 @@ describe("pixl success paths", () => {
       "season_profile back under program on L1"
     );
 
-    const player = (await admin.program.account.player.fetch(
+    const playerL1Info = await admin.provider.connection.getAccountInfo(
+      world.playerPda,
+      "confirmed"
+    );
+    // Player stays delegated, so its live value is read from the ER clone.
+    const player = (await erPlayer.program.account.player.fetch(
       world.playerPda
     )) as any;
     const seasonProfile = (await admin.program.account.seasonProfile.fetch(
@@ -862,7 +910,7 @@ describe("pixl success paths", () => {
     )) as any;
 
     logDiff(
-      "commit_and_undelegate_player (L1 after undelegate)",
+      "commit_and_undelegate_player (L1: profile undelegated, player committed-only)",
       playerL1Before,
       await snapshotAccounts(admin.program, playerL1Refs),
       "L1"
@@ -870,10 +918,14 @@ describe("pixl success paths", () => {
 
     logSection("commit_and_undelegate_player", {
       signature,
+      playerStillDelegated: playerL1Info?.owner.equals(DELEGATION_PROGRAM_ID),
       lifetimePixels: player.lifetimePixels.toString(),
       pixelsPainted: seasonProfile.pixelsPainted.toString(),
     });
 
+    // Player remains delegated (owned by the delegation program on L1); the
+    // committed snapshot still reflects the ER gameplay.
+    expect(playerL1Info?.owner.equals(DELEGATION_PROGRAM_ID)).to.equal(true);
     expect(player.lifetimePixels.toString()).to.equal("4");
     expect(seasonProfile.pixelsPainted.toString()).to.equal("4");
   });

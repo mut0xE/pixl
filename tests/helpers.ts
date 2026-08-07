@@ -401,12 +401,13 @@ export async function ensurePlayerInitialized(
     .rpc();
 }
 
-export async function ensureJoinedSeason(
+// Base layer: creates the per-season profile PDA. Does not touch season_stats,
+// which may already be delegated. Idempotent.
+export async function ensureSeasonProfileInitialized(
   ctx: TestContext,
   wallet: Keypair,
   playerPda: PublicKey,
   seasonPda: PublicKey,
-  seasonStatsPda: PublicKey,
   seasonProfilePda: PublicKey
 ) {
   const existing = await ctx.provider.connection.getAccountInfo(
@@ -414,10 +415,34 @@ export async function ensureJoinedSeason(
     "confirmed"
   );
   if (existing) {
-    return "already-joined";
+    return "already-created";
   }
 
   return (ctx.program.methods as any)
+    .initSeasonProfile()
+    .accounts({
+      wallet: wallet.publicKey,
+      player: playerPda,
+      season: seasonPda,
+      seasonProfile: seasonProfilePda,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([wallet])
+    .rpc();
+}
+
+// ER layer: marks a delegated profile as joined and bumps participant_count.
+// `erCtx.program` must be bound to the ER endpoint. Requires season_stats and
+// season_profile to already be delegated.
+export async function joinSeasonOnEr(
+  erCtx: TestContext,
+  wallet: Keypair,
+  playerPda: PublicKey,
+  seasonPda: PublicKey,
+  seasonStatsPda: PublicKey,
+  seasonProfilePda: PublicKey
+) {
+  return (erCtx.program.methods as any)
     .joinSeason()
     .accounts({
       wallet: wallet.publicKey,
@@ -425,7 +450,6 @@ export async function ensureJoinedSeason(
       season: seasonPda,
       seasonStats: seasonStatsPda,
       seasonProfile: seasonProfilePda,
-      systemProgram: SystemProgram.programId,
     })
     .signers([wallet])
     .rpc();
@@ -539,9 +563,7 @@ export async function withRetry<T>(
       lastError = error;
       if (attempt < attempts) {
         console.log(
-          `  ${label} attempt ${attempt} failed (${String(
-            error
-          )}); retrying...`
+          `  ${label} attempt ${attempt} failed (${String(error)}); retrying...`
         );
         await sleep(delayMs);
       }
@@ -732,7 +754,9 @@ export async function assertSystemWallet(
 
   if (accountInfo.data.length !== 0) {
     throw new Error(
-      `Wallet ${wallet.toBase58()} carries ${accountInfo.data.length} bytes of data and cannot be used as a payer`
+      `Wallet ${wallet.toBase58()} carries ${
+        accountInfo.data.length
+      } bytes of data and cannot be used as a payer`
     );
   }
 }

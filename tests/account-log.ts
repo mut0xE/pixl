@@ -27,12 +27,24 @@ export function worldAccountRefs(
   const refs: AccountRef[] = [
     { label: "game", kind: "game", address: world.gamePda },
     { label: "season", kind: "season", address: world.seasonPda },
-    { label: "seasonStats", kind: "seasonStats", address: world.seasonStatsPda },
+    {
+      label: "seasonStats",
+      kind: "seasonStats",
+      address: world.seasonStatsPda,
+    },
     { label: "player", kind: "player", address: world.playerPda },
-    { label: "seasonProfile", kind: "seasonProfile", address: world.seasonProfilePda },
+    {
+      label: "seasonProfile",
+      kind: "seasonProfile",
+      address: world.seasonProfilePda,
+    },
   ];
   if (includeCanvas && world.canvasKeypair) {
-    refs.push({ label: "canvas", kind: "canvas", address: world.canvasKeypair.publicKey });
+    refs.push({
+      label: "canvas",
+      kind: "canvas",
+      address: world.canvasKeypair.publicKey,
+    });
   }
   return refs;
 }
@@ -59,9 +71,7 @@ export async function fetchAccountState(
     if (ref.kind === "canvas") {
       return toPlain(await fetchCanvasAccount(connection, ref.address));
     }
-    return toPlain(
-      await (program.account as any)[ref.kind].fetch(ref.address)
-    );
+    return toPlain(await (program.account as any)[ref.kind].fetch(ref.address));
   } catch {
     return null;
   }
@@ -72,7 +82,9 @@ export async function snapshotAccounts(
   refs: AccountRef[]
 ): Promise<Record<string, State>> {
   const entries = await Promise.all(
-    refs.map(async (ref) => [ref.label, await fetchAccountState(program, ref)] as const)
+    refs.map(
+      async (ref) => [ref.label, await fetchAccountState(program, ref)] as const
+    )
   );
   return Object.fromEntries(entries);
 }
@@ -149,7 +161,12 @@ export function logDiff(
 }
 
 export async function withAccountDiff<T>(
-  opts: { title: string; program: Program; refs: AccountRef[]; source?: string },
+  opts: {
+    title: string;
+    program: Program;
+    refs: AccountRef[];
+    source?: string;
+  },
   run: () => Promise<T>
 ): Promise<T> {
   const before = await snapshotAccounts(opts.program, opts.refs);
