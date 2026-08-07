@@ -144,34 +144,16 @@ function SeasonDetailView({
   );
 }
 
-type Tab = SeasonSummary["status"];
-
-const TABS: { id: Tab; label: string; empty: string }[] = [
-  { id: "active", label: "Active", empty: "No live seasons right now." },
-  { id: "upcoming", label: "Upcoming", empty: "No upcoming seasons scheduled." },
-  { id: "ended", label: "Ended", empty: "No seasons have ended yet." },
-];
-
 export function SeasonBrowser() {
   const { seasons, loading, error, refetch } = useSeasons();
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab | null>(null);
 
-  const grouped = useMemo(() => {
-    const g: Record<Tab, SeasonSummary[]> = {
-      active: [],
-      upcoming: [],
-      ended: [],
-    };
-    for (const s of seasons ?? []) g[s.status].push(s);
-    return g;
-  }, [seasons]);
-
-  // Default to Active, but fall back to the first tab that actually has
-  // seasons so the view never opens on a blank list. Resolved lazily (once
-  // seasons load) and only while the user hasn't picked a tab themselves.
-  const activeTab: Tab =
-    tab ?? TABS.find((t) => grouped[t.id].length > 0)?.id ?? "active";
+  // Player-facing view: only the live season(s) matter here. History and
+  // upcoming seasons are an admin concern, so we filter to active only.
+  const active = useMemo(
+    () => (seasons ?? []).filter((s) => s.status === "active"),
+    [seasons]
+  );
 
   const current = seasons?.find((s) => s.address === selected) ?? null;
 
@@ -192,56 +174,27 @@ export function SeasonBrowser() {
     );
   }
 
-  const rows = grouped[activeTab];
-
   return (
     <div className="season-browser">
       <div className="season-browser__bar">
-        <span className="season-browser__heading">SEASONS</span>
+        <span className="season-browser__heading">ACTIVE SEASON</span>
       </div>
 
       {loading && !seasons ? (
         <SeasonGridSkeleton />
-      ) : seasons && seasons.length === 0 ? (
-        <p className="bootstrap-panel__hint">No seasons created yet.</p>
+      ) : active.length === 0 ? (
+        <p className="bootstrap-panel__hint">No active season right now.</p>
       ) : (
-        <>
-          <div className="admin-tabs" role="tablist">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                role="tab"
-                aria-selected={activeTab === t.id}
-                className={`admin-tab${
-                  activeTab === t.id ? " admin-tab--active" : ""
-                }`}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-                <span className="admin-tab__count">
-                  {grouped[t.id].length}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {rows.length === 0 ? (
-            <p className="bootstrap-panel__hint">
-              {TABS.find((t) => t.id === activeTab)?.empty}
-            </p>
-          ) : (
-            <div className="season-grid">
-              {rows.map((s, i) => (
-                <SeasonCard
-                  key={s.address}
-                  season={s}
-                  index={i}
-                  onOpen={() => setSelected(s.address)}
-                />
-              ))}
-            </div>
-          )}
-        </>
+        <div className="season-grid">
+          {active.map((s, i) => (
+            <SeasonCard
+              key={s.address}
+              season={s}
+              index={i}
+              onOpen={() => setSelected(s.address)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

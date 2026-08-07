@@ -115,8 +115,8 @@ a:focus-visible {
 
 .bootstrap-panel::before,
 .bootstrap-panel::after,
-.bootstrap-panel__header::before,
-.bootstrap-panel__header::after {
+.bootstrap-panel::before,
+.bootstrap-panel::after {
   content: "";
   position: absolute;
   width: 14px;
