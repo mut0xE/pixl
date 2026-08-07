@@ -1,10 +1,3 @@
-// Canvas snapshot export (pure).
-//
-// Turns a decoded canvas (palette-index grid + season palette) into a portable,
-// reproducible JSON snapshot and resolves each pixel to an RGBA color. The
-// actual PNG rasterization needs a DOM canvas and lives in the web app
-// (`app/web/lib/exportSnapshot.ts`); everything here is pure and unit-tested.
-
 import { u32ToRgba, type Rgba } from "./canvas";
 
 export type CanvasSnapshot = {
@@ -23,11 +16,7 @@ export function paletteIndexToRgba(palette: number[], index: number): Rgba {
   return u32ToRgba(color);
 }
 
-/**
- * Build the portable snapshot object. Validates that the index grid matches
- * `width * height` so a malformed export fails loudly instead of silently
- * truncating.
- */
+// Build the portable snapshot object; throws if the grid isn't `width * height`.
 export function canvasToSnapshot(input: {
   width: number;
   height: number;

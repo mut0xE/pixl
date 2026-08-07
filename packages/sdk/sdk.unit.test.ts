@@ -17,6 +17,7 @@ import {
   u32ToHex,
   hexToU32,
   estimateAvailableEnergy,
+  secondsUntilNextEnergy,
   canPaint,
   assertSeasonBelongsToGame,
   assertCanvasBelongsToSeason,
@@ -58,6 +59,10 @@ import {
   toSeasonSummary,
   sortSeasonsForDisplay,
   summarizeSeasonCounts,
+  computeContributionPct,
+  computeSeasonProgressPct,
+  formatPercent,
+  rankOfPlayer,
   type SeasonSummary,
   buildEndSeasonIx,
   buildCommitGameplayStateIx,
@@ -192,6 +197,38 @@ describe("energy estimation", () => {
 
   it("rejects backward timestamps", () => {
     expect(() => estimateAvailableEnergy(base, 99)).to.throw(RangeError);
+  });
+});
+
+describe("secondsUntilNextEnergy", () => {
+  const base = {
+    availableEnergy: 2,
+    maxEnergy: 6,
+    energyCooldownSeconds: 30,
+    lastEnergyRefresh: 100,
+  };
+
+  it("counts down within the current cooldown window", () => {
+    expect(secondsUntilNextEnergy(base, 100)).to.equal(30);
+    expect(secondsUntilNextEnergy(base, 110)).to.equal(20);
+    expect(secondsUntilNextEnergy(base, 129)).to.equal(1);
+  });
+
+  it("resets to a full window as each block lands", () => {
+    // 130 = one block regenerated; next block is a fresh 30s away.
+    expect(secondsUntilNextEnergy(base, 130)).to.equal(30);
+    expect(secondsUntilNextEnergy(base, 145)).to.equal(15);
+  });
+
+  it("returns null once projected energy is full", () => {
+    expect(secondsUntilNextEnergy(base, 100_000)).to.equal(null);
+    expect(
+      secondsUntilNextEnergy({ ...base, availableEnergy: 6 }, 100)
+    ).to.equal(null);
+  });
+
+  it("rejects backward timestamps", () => {
+    expect(() => secondsUntilNextEnergy(base, 99)).to.throw(RangeError);
   });
 });
 
@@ -965,6 +1002,48 @@ describe("season history", () => {
       { status: "active" } as SeasonSummary,
     ]);
     expect(counts).to.deep.equal({ active: 1, upcoming: 0, ended: 2 });
+  });
+});
+
+describe("community contribution", () => {
+  it("derives contribution as a share of the community total", () => {
+    expect(computeContributionPct(25, 100)).to.equal(25);
+    expect(computeContributionPct(1, 3)).to.be.closeTo(33.333, 0.001);
+  });
+
+  it("treats a zero (or missing) community total as 0%", () => {
+    expect(computeContributionPct(0, 0)).to.equal(0);
+    expect(computeContributionPct(5, 0)).to.equal(0);
+  });
+
+  it("measures season progress by elapsed time, clamped to the window", () => {
+    expect(computeSeasonProgressPct(100, 200, 150)).to.equal(50);
+    expect(computeSeasonProgressPct(100, 200, 50)).to.equal(0); // before start
+    expect(computeSeasonProgressPct(100, 200, 500)).to.equal(100); // after end
+  });
+
+  it("guards a degenerate window", () => {
+    expect(computeSeasonProgressPct(200, 200, 150)).to.equal(0);
+    expect(computeSeasonProgressPct(200, 200, 250)).to.equal(100);
+  });
+
+  it("never renders a nonzero share as a misleading 0%", () => {
+    expect(formatPercent(0)).to.equal("0%");
+    expect(formatPercent(0.02)).to.equal("<0.1%"); // tiny but real
+    expect(formatPercent(33.333)).to.equal("33.3%");
+    expect(formatPercent(50)).to.equal("50%"); // no trailing .0
+    expect(formatPercent(100)).to.equal("100%");
+  });
+
+  it("ranks a player from the (pre-sorted) leaderboard", () => {
+    const contributors = [
+      { player: "a", pixelsPainted: 30, joinedAt: 1 },
+      { player: "b", pixelsPainted: 20, joinedAt: 1 },
+      { player: "c", pixelsPainted: 10, joinedAt: 1 },
+    ];
+    expect(rankOfPlayer("a", contributors)).to.equal(1);
+    expect(rankOfPlayer("c", contributors)).to.equal(3);
+    expect(rankOfPlayer("z", contributors)).to.equal(null);
   });
 });
 

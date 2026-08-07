@@ -1,17 +1,3 @@
-// Admin-side transaction builders.
-//
-// The Canvas account uses Anchor's `#[account(zero)]` constraint, meaning the
-// program does not allocate it — the client must pre-create it (owned by the
-// program, rent-exempt, zeroed) in the same transaction as `start_season`.
-//
-// The canvas keypair is ephemeral BUT it is needed twice within this flow: once
-// to authorize `createAccount`, and again for `delegate_canvas` (a keypair
-// account has no PDA seeds, so it must sign its own delegation — see
-// `DelegateCanvas` in `delegate_gameplay.rs`). Because the canvas stays
-// delegated for the whole season (commit-without-undelegate), it is delegated
-// exactly once. Doing create + delegate in a single transaction lets the
-// keypair live only in memory for that one signature, then be discarded.
-
 import type { BN, Program } from "@coral-xyz/anchor";
 import {
   Connection,
@@ -37,8 +23,6 @@ import {
 
 type PixlProgram = Program<Pixl>;
 
-// MagicBlock delegation program + the PDA seeds it uses for the per-account
-// buffer / record / metadata accounts.
 export const DELEGATION_PROGRAM_ID = new PublicKey(
   "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
 );
@@ -79,10 +63,6 @@ export type CreateCanvasAccountIx = {
   space: number;
 };
 
-/**
- * Builds the instruction that pre-creates the canvas account client-side.
- * `canvas` MUST sign the transaction (via `tx.partialSign(canvas)`).
- */
 export async function buildCreateCanvasAccountIx(
   connection: Connection,
   programId: PublicKey,
@@ -120,10 +100,6 @@ type DelegateCommon = {
   validator?: PublicKey | null;
 };
 
-/**
- * `delegate_canvas` instruction. The canvas keypair must be added as a signer of
- * the transaction that carries this instruction.
- */
 export function buildDelegateCanvasIx(
   program: PixlProgram,
   params: DelegateCommon & { canvas: PublicKey }
@@ -147,9 +123,6 @@ export function buildDelegateCanvasIx(
     .instruction();
 }
 
-// Shared `delegate_any` builder. The program validates the target account
-// against the `AccountType` variant and signs for it via its PDA seeds, so the
-// only transaction signer required is `payer`.
 function buildDelegateAnyIx(
   program: PixlProgram,
   accountType: unknown,
@@ -175,10 +148,6 @@ function buildDelegateAnyIx(
     .instruction();
 }
 
-/**
- * `delegate_any` for the season-stats PDA. Admin-owned: the on-chain check
- * requires `game.authority == payer`. Signed by the admin only.
- */
 export function buildDelegateSeasonStatsIx(
   program: PixlProgram,
   params: DelegateCommon & { seasonStats: PublicKey }
@@ -191,10 +160,6 @@ export function buildDelegateSeasonStatsIx(
   );
 }
 
-/**
- * `delegate_any` for a player's own Player PDA. The on-chain check requires
- * `wallet == payer`, so the player signs for themselves.
- */
 export function buildDelegatePlayerIx(
   program: PixlProgram,
   params: DelegateCommon & { wallet: PublicKey }
@@ -208,10 +173,6 @@ export function buildDelegatePlayerIx(
   );
 }
 
-/**
- * `delegate_any` for a player's SeasonProfile PDA. The on-chain check requires
- * `wallet == payer`, so the player signs for themselves.
- */
 export function buildDelegateSeasonProfileIx(
   program: PixlProgram,
   params: DelegateCommon & { wallet: PublicKey }
@@ -270,20 +231,6 @@ export type SeasonCreatePlan = {
   seasonStats: PublicKey;
 };
 
-/**
- * Builds the transaction plan to create the canvas account, start the season,
- * and delegate the canvas + season-stats PDA to the ER.
- *
- * Small canvases (`canvasFitsSingleTx`) collapse to a SINGLE transaction
- * carrying createAccount + start_season + both delegations — the account grows
- * 0 → full size within the 10 KiB per-tx limit.
- *
- * Larger canvases exceed that limit, so allocation must happen in its own
- * transaction (a standalone top-level `SystemProgram.createAccount`, capped only
- * by the 10 MiB account size). `start_season` then only writes into the
- * already-sized account, so a second transaction carries start_season + both
- * delegations. The canvas keypair signs both steps.
- */
 export async function buildCreateSeasonPlan(
   connection: Connection,
   program: PixlProgram,
@@ -361,7 +308,6 @@ export async function buildCreateSeasonPlan(
         },
         {
           label: "Start & delegate season",
-          // delegate_canvas requires the canvas keypair to sign for itself.
           instructions: [startSeasonIx, delegateCanvasIx, delegateStatsIx],
           signers: [canvas],
         },
@@ -370,14 +316,6 @@ export async function buildCreateSeasonPlan(
   return { steps, canvas, season, seasonStats };
 }
 
-/**
- * Backwards-compatible single-transaction builder. Only valid for canvases that
- * fit in one transaction (`canvasFitsSingleTx`); throws otherwise, directing
- * callers to `buildCreateSeasonPlan`.
- *
- * Signing: `tx.partialSign(result.canvas)` first, then the admin wallet signs as
- * fee payer. The canvas keypair is only ever in memory for this single tx.
- */
 export async function buildCreateSeasonWithDelegationTx(
   connection: Connection,
   program: PixlProgram,
@@ -407,11 +345,6 @@ export async function buildCreateSeasonWithDelegationTx(
   };
 }
 
-/**
- * `end_season` — L1 instruction that marks the season completed and freezes the
- * canvas. Signed by the game authority. Runs AFTER the shared state has been
- * committed + undelegated back to L1.
- */
 export function buildEndSeasonIx(
   program: PixlProgram,
   params: {
@@ -432,14 +365,6 @@ export function buildEndSeasonIx(
     .instruction();
 }
 
-/**
- * `commit_gameplay_state(undelegate)` — ER instruction. With `undelegate=false`
- * it checkpoints Canvas + SeasonStats to L1 (keeps painting); with
- * `undelegate=true` it pushes the FINAL snapshot and returns L1 ownership,
- * destroying the ER copies. The admin (`payer == game.authority`) signs it on
- * the ER connection. `magic_program` / `magic_context` are injected by the
- * `#[commit]` macro and supplied here.
- */
 export function buildCommitGameplayStateIx(
   program: PixlProgram,
   params: {

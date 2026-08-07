@@ -1,11 +1,5 @@
-// Pure bootstrap state machine. No I/O, no wallet, no transactions — the
-// reducer only maps observed account/session state to a status string. The
-// caller decides what UI (and which explicit button) each status renders.
-//
-// Loading vs missing distinction:
-//   undefined -> still fetching (loading_*)
-//   null      -> fetched, account does not exist (missing / normal state)
-
+// Pure bootstrap state machine mapping observed account/session state to a
+// status string. undefined = still fetching; null = fetched but absent.
 export type BootstrapStatus =
   | "disconnected"
   | "connecting"
@@ -23,6 +17,8 @@ export type SessionMeta = {
   sessionSigner: string;
   sessionToken: string;
   validUntil: number;
+  // Public nonce to re-derive the session signer keypair; the secret is never stored.
+  nonce: number;
 };
 
 export type SeasonView = {
@@ -41,16 +37,20 @@ export type DeriveBootstrapInput = {
   now: number;
 };
 
-export function deriveBootstrapStatus(input: DeriveBootstrapInput): BootstrapStatus {
+export function deriveBootstrapStatus(
+  input: DeriveBootstrapInput
+): BootstrapStatus {
   if (!input.connected) return "disconnected";
 
   if (input.game === undefined) return "connecting";
   if (input.game === null) return "loading_game";
 
-  if (input.season === undefined || input.season === null) return "loading_game";
+  if (input.season === undefined || input.season === null)
+    return "loading_game";
   if (input.season === "zero") return "no_active_season";
   const s = input.season;
-  const active = !s.completed && input.now >= s.startTime && input.now < s.endTime;
+  const active =
+    !s.completed && input.now >= s.startTime && input.now < s.endTime;
   if (!active) return "no_active_season";
 
   if (input.player === undefined) return "loading_player";

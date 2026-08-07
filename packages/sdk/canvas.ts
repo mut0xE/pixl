@@ -1,28 +1,12 @@
-// Canvas index + palette conversion helpers.
-//
-// The on-chain canvas stores pixels in a flat `Vec<u8>` of palette indices,
-// laid out row-major: `index = y * width + x` (see `paint_pixel.rs`).
-// Palette colors are stored as packed `u32` values using the `0xRRGGBBAA`
-// convention (red in the most-significant byte, alpha in the least).
-
-// Byte size of a Canvas account: discriminator + season + width + height +
-// pixel vec length prefix + pixels + frozen flag. Must match `state.rs`.
+// Byte size of a Canvas account; must match `state.rs`.
 export function canvasAccountSpace(width: number, height: number): number {
   assertUint("width", width);
   assertUint("height", height);
   return 8 + 32 + 2 + 2 + 4 + width * height + 1;
 }
 
-// Solana account size limits (see `2026-08-07-large-canvas-support-design.md`):
-//
-// - A standalone top-level `SystemProgram.createAccount` can allocate up to
-//   `MAX_PERMITTED_DATA_LENGTH` (10 MiB). This is the hard ceiling on a canvas
-//   account.
-// - An account may grow by at most `MAX_PERMITTED_DATA_INCREASE` (10 KiB) within
-//   a transaction that a BPF program touches, measured against its size at the
-//   start of that tx. So the canvas can only be created + started in ONE tx when
-//   the whole account fits under that limit; larger canvases must allocate the
-//   account in its own transaction, then run `start_season` in a second one.
+// 10 MiB hard ceiling on a canvas account; 10 KiB is the max a program-touched
+// tx can grow an account, gating whether create + start_season fit in one tx.
 export const MAX_PERMITTED_DATA_LENGTH = 10 * 1024 * 1024;
 export const SINGLE_TX_CANVAS_MAX_BYTES = 10 * 1024;
 

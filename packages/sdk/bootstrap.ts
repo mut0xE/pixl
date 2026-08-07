@@ -1,8 +1,3 @@
-// Pure, wallet-agnostic builders for the player-bootstrap flow.
-//
-// These build instructions only — no signing, no sending, no wallet
-// dependency — so they are unit-testable and reusable across CLI/browser.
-
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
 import type { PixlProgram } from "./accounts";
@@ -47,16 +42,44 @@ export function buildInitPlayerIx(
     .instruction();
 }
 
-/** Matches the on-chain `JoinSeason` context. */
-export function buildJoinSeasonIx(
+export function buildInitSeasonProfileIx(
   program: PixlProgram,
   args: { wallet: PublicKey; season: PublicKey }
 ): Promise<TransactionInstruction> {
   return program.methods
-    .joinSeason()
+    .initSeasonProfile()
     .accounts({
       wallet: args.wallet,
       season: args.season,
+    })
+    .instruction();
+}
+
+export function buildJoinSeasonIx(
+  program: PixlProgram,
+  args: {
+    payer: PublicKey;
+    wallet: PublicKey;
+    season: PublicKey;
+    sessionToken?: PublicKey | null;
+  }
+): Promise<TransactionInstruction> {
+  const [player] = derivePlayerPda(program.programId, args.wallet);
+  const [seasonStats] = deriveSeasonStatsPda(program.programId, args.season);
+  const [seasonProfile] = deriveSeasonProfilePda(
+    program.programId,
+    args.season,
+    args.wallet
+  );
+  return program.methods
+    .joinSeason()
+    .accountsPartial({
+      payer: args.payer,
+      player,
+      season: args.season,
+      seasonStats,
+      seasonProfile,
+      sessionToken: args.sessionToken ?? null,
     })
     .instruction();
 }
