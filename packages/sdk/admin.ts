@@ -22,7 +22,11 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import type { Pixl } from "../../target/types/pixl";
-import { CANVAS_CREATE_MAX_BYTES, canvasAccountSpace } from "./canvas";
+import {
+  MAX_PERMITTED_DATA_LENGTH,
+  canvasAccountSpace,
+  canvasFitsSingleTx,
+} from "./canvas";
 import { MAGIC_CONTEXT_ID, MAGIC_PROGRAM_ID } from "./crank";
 import {
   derivePlayerPda,
@@ -88,11 +92,11 @@ export async function buildCreateCanvasAccountIx(
   canvas: Keypair = Keypair.generate()
 ): Promise<CreateCanvasAccountIx> {
   const space = canvasAccountSpace(width, height);
-  if (space > CANVAS_CREATE_MAX_BYTES) {
+  if (space > MAX_PERMITTED_DATA_LENGTH) {
     throw new RangeError(
-      `Canvas of ${width}x${height} needs ${space} bytes, but client-side ` +
-        `createAccount is capped at ${CANVAS_CREATE_MAX_BYTES}. Reduce the ` +
-        `canvas size (width * height <= ${CANVAS_CREATE_MAX_BYTES - 49}).`
+      `Canvas of ${width}x${height} needs ${space} bytes, but a single ` +
+        `account is capped at ${MAX_PERMITTED_DATA_LENGTH} bytes (10 MiB). ` +
+        `Reduce the canvas size.`
     );
   }
 
@@ -248,19 +252,39 @@ export type CreateSeasonWithDelegationResult = {
   seasonStats: PublicKey;
 };
 
+/** One transaction in a season-creation plan, with the signers it requires. */
+export type SeasonCreateStep = {
+  /** Human label for progress UI, e.g. "Allocate canvas". */
+  label: string;
+  instructions: TransactionInstruction[];
+  /** Extra signers beyond the fee payer — the canvas keypair when needed. */
+  signers: Keypair[];
+};
+
+export type SeasonCreatePlan = {
+  /** Transactions to send in order. 1 step for small canvases, 2 for large. */
+  steps: SeasonCreateStep[];
+  /** Ephemeral canvas keypair — signs the allocate + delegate steps. */
+  canvas: Keypair;
+  season: PublicKey;
+  seasonStats: PublicKey;
+};
+
 /**
- * Builds ONE transaction that creates the canvas account, starts the season,
- * and delegates both the canvas and the season-stats PDA to the ER.
+ * Builds the transaction plan to create the canvas account, start the season,
+ * and delegate the canvas + season-stats PDA to the ER.
  *
- * Signing: `tx.partialSign(result.canvas)` first, then the admin wallet signs as
- * fee payer. The canvas keypair is only ever in memory for this single tx.
+ * Small canvases (`canvasFitsSingleTx`) collapse to a SINGLE transaction
+ * carrying createAccount + start_season + both delegations — the account grows
+ * 0 → full size within the 10 KiB per-tx limit.
  *
- * NOTE: four instructions plus `start_season`'s string/palette args and the
- * delegation programs' many accounts can approach the 1232-byte legacy limit.
- * If it overflows, keep the title/description/palette small, or build a v0
- * `VersionedTransaction` with an address lookup table from `result.instructions`.
+ * Larger canvases exceed that limit, so allocation must happen in its own
+ * transaction (a standalone top-level `SystemProgram.createAccount`, capped only
+ * by the 10 MiB account size). `start_season` then only writes into the
+ * already-sized account, so a second transaction carries start_season + both
+ * delegations. The canvas keypair signs both steps.
  */
-export async function buildCreateSeasonWithDelegationTx(
+export async function buildCreateSeasonPlan(
   connection: Connection,
   program: PixlProgram,
   params: {
@@ -270,7 +294,7 @@ export async function buildCreateSeasonWithDelegationTx(
     validator?: PublicKey | null;
     canvas?: Keypair;
   }
-): Promise<CreateSeasonWithDelegationResult> {
+): Promise<SeasonCreatePlan> {
   const { authority, game, args, validator = null } = params;
   const width = args.canvasWidth ?? 512;
   const height = args.canvasHeight ?? 512;
@@ -316,15 +340,71 @@ export async function buildCreateSeasonWithDelegationTx(
     validator,
   });
 
-  const instructions = [
-    createCanvasIx,
-    startSeasonIx,
-    delegateCanvasIx,
-    delegateStatsIx,
-  ];
-  const transaction = new Transaction().add(...instructions);
+  const steps: SeasonCreateStep[] = canvasFitsSingleTx(width, height)
+    ? [
+        {
+          label: "Create & delegate season",
+          instructions: [
+            createCanvasIx,
+            startSeasonIx,
+            delegateCanvasIx,
+            delegateStatsIx,
+          ],
+          signers: [canvas],
+        },
+      ]
+    : [
+        {
+          label: "Allocate canvas",
+          instructions: [createCanvasIx],
+          signers: [canvas],
+        },
+        {
+          label: "Start & delegate season",
+          // delegate_canvas requires the canvas keypair to sign for itself.
+          instructions: [startSeasonIx, delegateCanvasIx, delegateStatsIx],
+          signers: [canvas],
+        },
+      ];
 
-  return { transaction, instructions, canvas, season, seasonStats };
+  return { steps, canvas, season, seasonStats };
+}
+
+/**
+ * Backwards-compatible single-transaction builder. Only valid for canvases that
+ * fit in one transaction (`canvasFitsSingleTx`); throws otherwise, directing
+ * callers to `buildCreateSeasonPlan`.
+ *
+ * Signing: `tx.partialSign(result.canvas)` first, then the admin wallet signs as
+ * fee payer. The canvas keypair is only ever in memory for this single tx.
+ */
+export async function buildCreateSeasonWithDelegationTx(
+  connection: Connection,
+  program: PixlProgram,
+  params: {
+    authority: PublicKey;
+    game: PublicKey;
+    args: StartSeasonArgs;
+    validator?: PublicKey | null;
+    canvas?: Keypair;
+  }
+): Promise<CreateSeasonWithDelegationResult> {
+  const plan = await buildCreateSeasonPlan(connection, program, params);
+  if (plan.steps.length !== 1) {
+    throw new RangeError(
+      "Canvas is too large for a single transaction — use " +
+        "buildCreateSeasonPlan and send each step in order."
+    );
+  }
+  const instructions = plan.steps[0].instructions;
+  const transaction = new Transaction().add(...instructions);
+  return {
+    transaction,
+    instructions,
+    canvas: plan.canvas,
+    season: plan.season,
+    seasonStats: plan.seasonStats,
+  };
 }
 
 /**

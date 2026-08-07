@@ -31,6 +31,7 @@ import {
   buildDelegatePlayerIx,
   buildDelegateSeasonProfileIx,
   buildCreateSeasonWithDelegationTx,
+  buildCreateSeasonPlan,
   deriveDelegationRecordPda,
   DELEGATION_PROGRAM_ID,
   resolveBootstrapAccounts,
@@ -493,6 +494,74 @@ describe("admin: canvas creation + delegation", () => {
     );
     expect(inStart && inDelegate).to.equal(true);
   });
+
+  const planArgs = (w: number, h: number): StartSeasonArgs => ({
+    seasonId: 9,
+    title: "S9",
+    description: "d",
+    palette: [0x000000ff, 0xffffffff],
+    imageUri: "ipfs://x",
+    canvasWidth: w,
+    canvasHeight: h,
+    startTime: new BN(1_000),
+    endTime: new BN(2_000),
+  });
+  const conn = { getMinimumBalanceForRentExemption: async () => 1_000_000 };
+
+  it("plans a single step for a small canvas", async () => {
+    const plan = await buildCreateSeasonPlan(conn as any, program, {
+      authority,
+      game,
+      args: planArgs(64, 64),
+    });
+    expect(plan.steps.length).to.equal(1);
+    // create + start + delegate_canvas + delegate_stats.
+    expect(plan.steps[0].instructions.length).to.equal(4);
+    expect(plan.steps[0].signers[0].publicKey.equals(plan.canvas.publicKey)).to
+      .equal(true);
+  });
+
+  for (const dim of [256, 512]) {
+    it(`plans two steps for a ${dim}x${dim} canvas`, async () => {
+      const plan = await buildCreateSeasonPlan(conn as any, program, {
+        authority,
+        game,
+        args: planArgs(dim, dim),
+      });
+      expect(plan.steps.length).to.equal(2);
+      // Step 1 is a lone createAccount; the canvas keypair signs it.
+      expect(plan.steps[0].instructions.length).to.equal(1);
+      expect(
+        plan.steps[0].signers[0].publicKey.equals(plan.canvas.publicKey)
+      ).to.equal(true);
+      // Step 2 is start_season + both delegations; canvas co-signs delegate.
+      expect(plan.steps[1].instructions.length).to.equal(3);
+      const [startIx, delegateCanvasIx] = plan.steps[1].instructions;
+      expect(
+        startIx.keys.some((k) => k.pubkey.equals(plan.canvas.publicKey))
+      ).to.equal(true);
+      expect(
+        delegateCanvasIx.keys.some((k) =>
+          k.pubkey.equals(plan.canvas.publicKey)
+        )
+      ).to.equal(true);
+    });
+  }
+
+  it("rejects a canvas beyond the 10 MiB account cap", async () => {
+    // 4096x4096 = ~16 MiB of pixels, over MAX_PERMITTED_DATA_LENGTH.
+    let threw = false;
+    try {
+      await buildCreateSeasonPlan(conn as any, program, {
+        authority,
+        game,
+        args: planArgs(4096, 4096),
+      });
+    } catch (e) {
+      threw = e instanceof RangeError;
+    }
+    expect(threw).to.equal(true);
+  });
 });
 
 describe("event parsing", () => {
@@ -571,8 +640,13 @@ describe("bootstrap builders", () => {
     expect(byKey(SystemProgram.programId)).to.not.equal(undefined);
   });
 
-  it("buildJoinSeasonIx wires player, season, stats, profile", async () => {
-    const ix = await buildJoinSeasonIx(program, { wallet, season: seasonPda });
+  it("buildJoinSeasonIx wires player, season, stats, profile with session payer", async () => {
+    const payer = Keypair.generate().publicKey;
+    const ix = await buildJoinSeasonIx(program, {
+      payer,
+      wallet,
+      season: seasonPda,
+    });
     const [profile] = deriveSeasonProfilePda(PROGRAM_ID, seasonPda, wallet);
     const [stats] = deriveSeasonStatsPda(PROGRAM_ID, seasonPda);
     const has = (k: PublicKey) => ix.keys.some((m) => m.pubkey.equals(k));
@@ -580,8 +654,9 @@ describe("bootstrap builders", () => {
     expect(has(seasonPda)).to.equal(true);
     expect(has(stats)).to.equal(true);
     expect(has(profile)).to.equal(true);
-    const w = ix.keys.find((m) => m.pubkey.equals(wallet))!;
-    expect(w.isSigner).to.equal(true);
+    // The session key (payer) signs; the wallet is only a PDA seed, not a key.
+    const p = ix.keys.find((m) => m.pubkey.equals(payer))!;
+    expect(p.isSigner).to.equal(true);
   });
 });
 
