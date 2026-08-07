@@ -10,18 +10,6 @@ use crate::{
     PixlError,
 };
 
-fn commit_and_undelegate<'info>(
-    payer: AccountInfo<'info>,
-    magic_context: AccountInfo<'info>,
-    magic_program: AccountInfo<'info>,
-    accounts: &[AccountInfo<'info>],
-) -> Result<()> {
-    MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
-        .commit_and_undelegate(accounts)
-        .build_and_invoke()?;
-    Ok(())
-}
-
 #[commit]
 #[derive(Accounts)]
 pub struct CommitSharedState<'info> {
@@ -112,13 +100,16 @@ pub fn handle_commit_and_undelegate_player(ctx: Context<CommitAndUndelegatePlaye
         PixlError::SeasonNotEnded
     );
 
-    commit_and_undelegate(
-        ctx.accounts.payer.to_account_info(),
-        ctx.accounts.magic_context.to_account_info(),
-        ctx.accounts.magic_program.to_account_info(),
-        &[
-            ctx.accounts.player.to_account_info(),
-            ctx.accounts.season_profile.to_account_info(),
-        ],
-    )
+    let payer = ctx.accounts.payer.to_account_info();
+    let magic_context = ctx.accounts.magic_context.to_account_info();
+    let magic_program = ctx.accounts.magic_program.to_account_info();
+
+    // The player PDA lives across seasons, so only commit it (kept delegated);
+    // just the per-season profile is undelegated and finalized.
+    MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
+        .commit(&[ctx.accounts.player.to_account_info()])
+        .commit_and_undelegate(&[ctx.accounts.season_profile.to_account_info()])
+        .build_and_invoke()?;
+
+    Ok(())
 }

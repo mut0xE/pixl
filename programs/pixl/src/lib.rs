@@ -40,6 +40,10 @@ pub mod pixl {
         instructions::delegate_gameplay::handle_delegate_canvas(ctx)
     }
 
+    pub fn init_season_profile(ctx: Context<InitSeasonProfile>) -> Result<()> {
+        instructions::init_season_profile::handle_init_season_profile(ctx)
+    }
+
     pub fn join_season(ctx: Context<JoinSeason>) -> Result<()> {
         instructions::join_season::handle_join_season(ctx)
     }
