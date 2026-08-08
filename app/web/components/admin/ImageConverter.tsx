@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   convertImageToArtwork,
   deriveHeight,
+  u32ToHex,
   u32ToRgba,
   type SourceImage,
 } from "../../../../packages/sdk";
@@ -88,10 +89,12 @@ export function ImageConverter({
   const [y, setY] = useState(0);
   const [fit, setFit] = useState<"contain" | "crop">("contain");
   const [alphaThreshold, setAlphaThreshold] = useState(128);
+  const [zoom, setZoom] = useState(1);
 
   const previewRef = useRef<HTMLCanvasElement>(null);
   const layoutRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
 
   const paletteRgba = useMemo(() => palette.map(u32ToRgba), [palette]);
 
@@ -220,21 +223,33 @@ export function ImageConverter({
     ctx.putImageData(new ImageData(buf, canvasWidth, canvasHeight), 0, 0);
   }, [canvasPixels, paletteRgba, canvasWidth, canvasHeight, result]);
 
-  // Click the stage to place the artwork centered on the clicked cell.
-  function placeFromClick(e: React.MouseEvent<HTMLDivElement>) {
+  // Move the artwork so it centers on the pointer cell (used for click + drag).
+  function placeAtPointer(clientX: number, clientY: number) {
     const stage = stageRef.current;
     if (!stage || !result) return;
     const rect = stage.getBoundingClientRect();
     const cellX = Math.floor(
-      ((e.clientX - rect.left) / rect.width) * canvasWidth
+      ((clientX - rect.left) / rect.width) * canvasWidth
     );
     const cellY = Math.floor(
-      ((e.clientY - rect.top) / rect.height) * canvasHeight
+      ((clientY - rect.top) / rect.height) * canvasHeight
     );
     const aw = result.artwork.width;
     const ah = result.artwork.height;
     setX(Math.max(0, Math.min(canvasWidth - aw, cellX - Math.floor(aw / 2))));
     setY(Math.max(0, Math.min(canvasHeight - ah, cellY - Math.floor(ah / 2))));
+  }
+
+  function onStagePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    draggingRef.current = true;
+    stageRef.current?.setPointerCapture?.(e.pointerId);
+    placeAtPointer(e.clientX, e.clientY);
+  }
+  function onStagePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (draggingRef.current) placeAtPointer(e.clientX, e.clientY);
+  }
+  function endDrag() {
+    draggingRef.current = false;
   }
 
   function exportJson() {
@@ -271,8 +286,20 @@ export function ImageConverter({
         Convert a PNG, transparent PNG, JPG, WebP, or SVG into an Artwork
         bounded by this season&apos;s {canvasWidth}×{canvasHeight} canvas and{" "}
         {palette.length}-color palette. Contain mode keeps the whole image
-        visible; transparent pixels stay untouched.
+        visible; transparent pixels stay untouched. Output can only use the
+        palette below — colors not in it snap to the nearest match.
       </p>
+
+      <div className="img-conv__swatches" aria-label="Season palette">
+        {palette.map((c, i) => (
+          <span
+            key={i}
+            className="img-conv__swatch"
+            style={{ background: u32ToHex(c).slice(0, 7) }}
+            title={`#${i} ${u32ToHex(c).slice(0, 7)}`}
+          />
+        ))}
+      </div>
 
       <label className="admin-field admin-field--wide">
         <span>Source image</span>
@@ -417,34 +444,67 @@ export function ImageConverter({
 
           <figure className="img-conv__fig">
             <figcaption>
-              Placement on canvas — click to position ({result.artwork.x},{" "}
+              Placement on canvas — drag to move ({result.artwork.x},{" "}
               {result.artwork.y})
             </figcaption>
-            <div
-              ref={stageRef}
-              className="img-conv__stage"
-              style={{
-                width: canvasWidth * stageScale,
-                height: canvasHeight * stageScale,
-              }}
-              onClick={placeFromClick}
-              role="button"
-              tabIndex={0}
-              aria-label="Canvas placement — click to position the artwork"
-            >
-              <canvas
-                ref={layoutRef}
-                className="img-conv__pixel img-conv__layoutcanvas"
+            <div className="img-conv__zoombar">
+              <button
+                type="button"
+                className="img-conv__zbtn"
+                onClick={() => setZoom((z) => Math.max(1, z - 1))}
+                aria-label="Zoom out"
+              >
+                −
+              </button>
+              <input
+                type="range"
+                min={1}
+                max={8}
+                step={1}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                aria-label="Zoom"
               />
+              <button
+                type="button"
+                className="img-conv__zbtn"
+                onClick={() => setZoom((z) => Math.min(8, z + 1))}
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+              <span className="img-conv__zlabel">{zoom}×</span>
+            </div>
+            <div className="img-conv__scroll">
               <div
-                className="img-conv__bbox"
+                ref={stageRef}
+                className="img-conv__stage"
                 style={{
-                  left: `${(result.artwork.x / canvasWidth) * 100}%`,
-                  top: `${(result.artwork.y / canvasHeight) * 100}%`,
-                  width: `${(result.artwork.width / canvasWidth) * 100}%`,
-                  height: `${(result.artwork.height / canvasHeight) * 100}%`,
+                  width: canvasWidth * stageScale * zoom,
+                  height: canvasHeight * stageScale * zoom,
                 }}
-              />
+                onPointerDown={onStagePointerDown}
+                onPointerMove={onStagePointerMove}
+                onPointerUp={endDrag}
+                onPointerLeave={endDrag}
+                role="button"
+                tabIndex={0}
+                aria-label="Canvas placement — drag to position the artwork"
+              >
+                <canvas
+                  ref={layoutRef}
+                  className="img-conv__pixel img-conv__layoutcanvas"
+                />
+                <div
+                  className="img-conv__bbox"
+                  style={{
+                    left: `${(result.artwork.x / canvasWidth) * 100}%`,
+                    top: `${(result.artwork.y / canvasHeight) * 100}%`,
+                    width: `${(result.artwork.width / canvasWidth) * 100}%`,
+                    height: `${(result.artwork.height / canvasHeight) * 100}%`,
+                  }}
+                />
+              </div>
             </div>
           </figure>
 

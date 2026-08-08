@@ -1957,13 +1957,55 @@ a:focus-visible {
   margin: 0;
   color: var(--paper);
 }
+.img-conv__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.img-conv__swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--grid);
+}
+.img-conv__zoombar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.img-conv__zoombar input[type="range"] {
+  flex: 0 1 200px;
+}
+.img-conv__zbtn {
+  font-family: var(--font-mono);
+  width: 26px;
+  height: 26px;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--grid);
+  cursor: pointer;
+}
+.img-conv__zbtn:hover {
+  border-color: var(--signal);
+}
+.img-conv__zlabel {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+.img-conv__scroll {
+  max-width: 100%;
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--grid);
+}
 .img-conv__stage {
   position: relative;
-  cursor: crosshair;
-  border: 1px solid var(--grid);
+  cursor: grab;
   background: repeating-conic-gradient(#1a1a1a 0% 25%, #111 0% 50%) 0 / 16px
     16px;
-  max-width: 100%;
+}
+.img-conv__stage:active {
+  cursor: grabbing;
 }
 .img-conv__layoutcanvas {
   position: absolute;
