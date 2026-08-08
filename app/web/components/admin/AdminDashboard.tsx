@@ -48,10 +48,26 @@ export function AdminDashboard() {
                   <b>{counts.ended}</b> ended
                 </>
               ) : (
-                <span className="skeleton skeleton--line" style={{ width: 160 }} />
+                <span
+                  className="skeleton skeleton--line"
+                  style={{ width: 160 }}
+                />
               )}
             </span>
             <span className="admin-action__go">Open roster →</span>
+          </Link>
+
+          <Link href="/admin/converter" className="admin-action">
+            <span className="admin-action__index">03</span>
+            <span className="admin-action__glyph" aria-hidden>
+              ◧
+            </span>
+            <span className="admin-action__title">Image converter</span>
+            <span className="admin-action__note">
+              Turn a PNG / JPG into an Artwork mapped onto a season’s canvas and
+              palette, then export the blueprint JSON.
+            </span>
+            <span className="admin-action__go">Open converter →</span>
           </Link>
         </div>
       )}
