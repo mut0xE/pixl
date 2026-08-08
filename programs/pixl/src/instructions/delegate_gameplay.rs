@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::{anchor::delegate, cpi::DelegateConfig};
 
 use crate::{
-    constants::{PLAYER_SEED, SEASON_PROFILE_SEED, SEASON_STATS_SEED},
+    constants::{FEE_PAYER_SEED, GAME_SEED, PLAYER_SEED, SEASON_PROFILE_SEED, SEASON_STATS_SEED},
     state::{Canvas, Game, Season},
     PixlError,
 };
@@ -12,6 +12,7 @@ pub enum AccountType {
     Player { wallet: Pubkey },
     SeasonProfile { season: Pubkey, wallet: Pubkey },
     SeasonStats { season: Pubkey },
+    FeePayer,
 }
 
 #[delegate]
@@ -128,6 +129,35 @@ pub fn handle_delegate_any(ctx: Context<DelegateAny>, account_type: AccountType)
             )?;
         }
 
+        AccountType::FeePayer => {
+            // Only the game authority may delegate the shared fee payer.
+            let game_data = load_game(&ctx.accounts.game, ctx.program_id)?;
+            require_keys_eq!(
+                game_data.authority,
+                ctx.accounts.payer.key(),
+                PixlError::Unauthorized
+            );
+            let (expected_game, _) =
+                Pubkey::find_program_address(&[GAME_SEED], ctx.program_id);
+            require_keys_eq!(expected_game, ctx.accounts.game.key(), PixlError::WrongGame);
+
+            let (expected, _) =
+                Pubkey::find_program_address(&[FEE_PAYER_SEED], ctx.program_id);
+            require_keys_eq!(
+                expected,
+                ctx.accounts.target_account.key(),
+                PixlError::InvalidAccountState
+            );
+
+            ctx.accounts.delegate_target_account(
+                &ctx.accounts.payer,
+                &[FEE_PAYER_SEED],
+                DelegateConfig {
+                    validator,
+                    ..Default::default()
+                },
+            )?;
+        }
     }
 
     Ok(())

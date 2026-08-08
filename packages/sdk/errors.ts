@@ -24,6 +24,7 @@ const PIXL_ERRORS = [
   "The player account has not been initialized.",
   "The season profile account has not been initialized.",
   "The player does not have enough energy.",
+  "The pixel is already painted with that color.",
   "The provided game account does not match the expected game.",
   "The provided season account does not match the expected season.",
   "The provided canvas account does not match the expected canvas.",

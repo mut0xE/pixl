@@ -14,6 +14,14 @@ import { TxButton } from "./TxButton";
 import { PixlCanvas } from "./PixlCanvas";
 import { SeasonBrowser } from "./SeasonBrowser";
 
+const LOADING_PIXELS = Array.from({ length: 12 }, (_, i) => i);
+const LOADING_STATUSES = new Set([
+  "connecting",
+  "loading_game",
+  "loading_player",
+  "loading_profile",
+]);
+
 export function BootstrapPanel() {
   const { status, refetch, seasonAddress, session, setSession, error } =
     useBootstrap();
@@ -21,6 +29,7 @@ export function BootstrapPanel() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { isAuthority } = useAdmin();
+  const isLoadingStatus = LOADING_STATUSES.has(status);
   // Session secret lives in memory only; only its public metadata is persisted.
   const sessionSecretRef = useRef<Keypair | null>(null);
 
@@ -62,11 +71,15 @@ export function BootstrapPanel() {
 
   return (
     <section className="bootstrap-panel" data-status={status}>
+      <div className="bootstrap-panel__grain" aria-hidden />
       <header
         className="bootstrap-panel__header reveal"
         style={{ animationDelay: "40ms" }}
       >
-        <h1>Pixl</h1>
+        <div className="bootstrap-panel__brand">
+          <span className="bootstrap-panel__eyebrow">Session gateway</span>
+          <h1>Pixl</h1>
+        </div>
         <div className="bootstrap-panel__nav">
           {isAuthority && (
             <Link href="/admin" className="header-link">
@@ -86,8 +99,17 @@ export function BootstrapPanel() {
           data-status={status}
           aria-hidden
         />
-        {status.replace(/_/g, " ")}
+        {isLoadingStatus ? "loading game" : status.replace(/_/g, " ")}
       </p>
+
+      <div
+        className="bootstrap-panel__meta reveal"
+        style={{ animationDelay: "150ms" }}
+      >
+        <span className="bootstrap-panel__meta-pill">Wallet-synced</span>
+        <span className="bootstrap-panel__meta-pill">Season-aware</span>
+        <span className="bootstrap-panel__meta-pill">One-tap entry</span>
+      </div>
 
       <div
         className="bootstrap-panel__body reveal"
@@ -97,10 +119,23 @@ export function BootstrapPanel() {
           <p className="bootstrap-panel__hint">Connect a wallet to begin.</p>
         )}
 
-        {(status === "connecting" ||
-          status === "loading_game" ||
-          status === "loading_player" ||
-          status === "loading_profile") &&
+        {status === "game_missing" && (
+          <p className="bootstrap-panel__hint bootstrap-panel__hint--error">
+            Game account is missing. Open admin and initialize Pixl first.
+            <Link href="/admin" className="bootstrap-panel__retry">
+              Admin
+            </Link>
+            <button
+              type="button"
+              className="bootstrap-panel__retry"
+              onClick={() => refetch()}
+            >
+              Retry
+            </button>
+          </p>
+        )}
+
+        {isLoadingStatus &&
           (error ? (
             <p className="bootstrap-panel__hint bootstrap-panel__hint--error">
               Couldn't reach the network. {error}
@@ -113,12 +148,23 @@ export function BootstrapPanel() {
               </button>
             </p>
           ) : (
-            <div
-              className="loading-bar"
-              role="progressbar"
-              aria-label={status.replace(/_/g, " ")}
-            >
-              <span className="loading-bar__fill" />
+            <div className="loading-card">
+              <div className="loading-card__track">
+                <div
+                  className="loading-pixels"
+                  role="progressbar"
+                  aria-label={status.replace(/_/g, " ")}
+                >
+                  {LOADING_PIXELS.map((i) => (
+                    <span
+                      key={i}
+                      className="loading-pixels__cell"
+                      style={{ animationDelay: `${i * 85}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <span className="loading-inline__label">loading...</span>
             </div>
           ))}
 
@@ -130,6 +176,8 @@ export function BootstrapPanel() {
           seasonAddress && (
             <TxButton
               label="Create Player"
+              inlineFeedback={false}
+              toastProgress
               onRun={async (setState) => {
                 setState("building");
                 // Create the Player PDA on L1 only; delegation happens in Join Season.
@@ -147,6 +195,8 @@ export function BootstrapPanel() {
           seasonAddress && (
             <TxButton
               label="Join Season"
+              inlineFeedback={false}
+              toastProgress
               onRun={async (setState) => {
                 setState("building");
                 // One action, two layers: create + delegate the profile on L1,
@@ -171,29 +221,35 @@ export function BootstrapPanel() {
         {(status === "session_missing" || status === "session_expired") &&
           program &&
           wallet.publicKey && (
-            <TxButton
-              label={
-                status === "session_expired"
-                  ? "Renew Session"
-                  : "Set Up Session"
-              }
-              onRun={async (setState) => {
-                setState("awaiting_signature");
-                const nonce = nextSessionNonce(wallet.publicKey!.toBase58());
-                const { meta, secret, signature } = await setUpSession(
-                  connection,
-                  wallet,
-                  program.programId,
-                  nonce
-                );
-                sessionSecretRef.current = secret;
-                saveSessionMeta(wallet.publicKey!.toBase58(), meta);
-                setSession(meta);
-                setState("confirming");
-                return signature;
-              }}
-              onDone={refetch}
-            />
+            <div className="bootstrap-panel__session-step">
+              <p className="bootstrap-panel__session-copy">
+                Pixl uses a short-lived session key so painting can happen on
+                the rollup without a wallet popup for every pixel.
+              </p>
+              <TxButton
+                label={
+                  status === "session_expired"
+                    ? "Renew Session"
+                    : "Enable Session"
+                }
+                onRun={async (setState) => {
+                  setState("awaiting_signature");
+                  const nonce = nextSessionNonce(wallet.publicKey!.toBase58());
+                  const { meta, secret, signature } = await setUpSession(
+                    connection,
+                    wallet,
+                    program.programId,
+                    nonce
+                  );
+                  sessionSecretRef.current = secret;
+                  saveSessionMeta(wallet.publicKey!.toBase58(), meta);
+                  setSession(meta);
+                  setState("confirming");
+                  return signature;
+                }}
+                onDone={refetch}
+              />
+            </div>
           )}
       </div>
     </section>

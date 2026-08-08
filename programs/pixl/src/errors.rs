@@ -42,6 +42,8 @@ pub enum PixlError {
     SeasonProfileNotInitialized,
     #[msg("The player does not have enough energy.")]
     NotEnoughEnergy,
+    #[msg("The pixel is already painted with that color.")]
+    SameColor,
     #[msg("The provided game account does not match the expected game.")]
     WrongGame,
     #[msg("The provided season account does not match the expected season.")]

@@ -10,7 +10,11 @@ export function gameShareUrl(): string {
 }
 
 // Click-to-copy an invite link, with toast + brief inline "copied" feedback.
-export function ShareGame({ className = "canvas-btn" }: { className?: string }) {
+export function ShareGame({
+  className = "canvas-btn",
+}: {
+  className?: string;
+}) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 

@@ -4,7 +4,7 @@
     "test": "ts-mocha -p ./tsconfig.json -t 300000 tests/e2e.ts",
     "test:all": "ts-mocha -p ./tsconfig.json -t 300000 tests/e2e.ts",
     "test:e2e": "ts-mocha -p ./tsconfig.json -t 300000 tests/e2e.ts",
-    "test:sdk": "ts-mocha -p ./tsconfig.json -t 60000 packages/sdk/sdk.unit.test.ts",
+    "test:sdk": "ts-mocha -p ./tsconfig.json -t 60000 packages/sdk/*.unit.test.ts",
     "magicblock:delegate": "ts-mocha -p ./tsconfig.json -t 300000 tests/e2e.ts",
     "format": "prettier --write .",
     "lint": "prettier --check .",

@@ -5,12 +5,10 @@ import { useParams } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
 import { u32ToHex, type SeasonSummary } from "../../../../packages/sdk";
 import { useSeasonSummary, useSeasonDetail } from "../../lib/useSeasons";
-import { useCanvasData } from "../../lib/useCanvasData";
 import { CopyKey } from "../CopyKey";
 import { AdminShell } from "./AdminShell";
 import { SeasonLifecyclePanel } from "./SeasonLifecyclePanel";
 import { ExportSnapshot } from "./ExportSnapshot";
-import { ImageConverter } from "./ImageConverter";
 
 function shortKey(k: string): string {
   return `${k.slice(0, 4)}…${k.slice(-4)}`;
@@ -24,7 +22,7 @@ function fmt(unix: number): string {
   });
 }
 
-type Tab = "details" | "lifecycle" | "artwork";
+type Tab = "details" | "lifecycle";
 
 // Per-season workspace: a Details tab (contributions) and a Lifecycle tab.
 export function SeasonManage() {
@@ -105,16 +103,6 @@ function Inner({ game, address }: { game: PublicKey; address: string | null }) {
         >
           Lifecycle
         </button>
-        <button
-          role="tab"
-          aria-selected={tab === "artwork"}
-          className={`admin-tab${
-            tab === "artwork" ? " admin-tab--active" : ""
-          }`}
-          onClick={() => setTab("artwork")}
-        >
-          Artwork
-        </button>
       </div>
 
       {tab === "details" && <DetailsTab season={season} />}
@@ -128,35 +116,7 @@ function Inner({ game, address }: { game: PublicKey; address: string | null }) {
           <ExportSnapshot season={season} />
         </>
       )}
-      {tab === "artwork" && <ArtworkTab season={season} />}
     </>
-  );
-}
-
-function ArtworkTab({ season }: { season: SeasonSummary }) {
-  const { data: canvas, loading } = useCanvasData(
-    new PublicKey(season.address)
-  );
-
-  if (!canvas) {
-    return (
-      <section className="admin-card" aria-busy={loading}>
-        <h3 className="admin-card__heading">IMAGE → ARTWORK</h3>
-        <p className="admin-card__note">
-          {loading ? "Reading canvas layout…" : "Canvas unavailable."}
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <ImageConverter
-      canvasWidth={canvas.width}
-      canvasHeight={canvas.height}
-      canvasPixels={canvas.pixels}
-      palette={canvas.palette}
-      seasonId={canvas.seasonId}
-    />
   );
 }
 

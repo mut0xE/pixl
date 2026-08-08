@@ -292,6 +292,16 @@ export function usePainting({
         setError("Painting unavailable — connect and set up a session.");
         return;
       }
+
+      if (
+        x < data.width &&
+        y < data.height &&
+        colorAt(y * data.width + x) === selectedColor
+      ) {
+        toast.error("Same color", PAINT_BLOCK_MESSAGES.same_color);
+        return;
+      }
+
       if (!energy) {
         setError("Energy not loaded yet.");
         return;
@@ -312,6 +322,13 @@ export function usePainting({
         now: Math.floor(Date.now() / 1000),
       });
       if (!check.ok) {
+        if (check.reason === "no_energy") {
+          return;
+        }
+        if (check.reason === "same_color") {
+          toast.error("Same color", PAINT_BLOCK_MESSAGES.same_color);
+          return;
+        }
         setError(PAINT_BLOCK_MESSAGES[check.reason]);
         return;
       }
@@ -356,14 +373,13 @@ export function usePainting({
         );
         // Authoritative confirmation drops the overlay via the canvas subscription.
         updateTx(txId, { status: "confirmed", signature });
-        toast.success("Pixel painted", `x${x} y${y} · confirmed on the ER`);
       } catch (e) {
         // Revert: restore the previous pixel and surface the failure.
         pendingRef.current.delete(index);
         dirtyRef.current.add(index);
         bump();
         const message = e instanceof Error ? e.message : String(e);
-        setError(message);
+        if (!/energy|recharge/i.test(message)) setError(message);
         updateTx(txId, { status: "failed", error: message });
         toast.error("Paint failed", `x${x} y${y} · ${message}`);
       }

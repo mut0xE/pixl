@@ -17,10 +17,7 @@ function fmt(unix: number): string {
 // One clickable season summary in the roster; opens the per-season page.
 export function SeasonCard({ season }: { season: SeasonSummary }) {
   return (
-    <Link
-      href={`/admin/seasons/${season.address}`}
-      className="season-card"
-    >
+    <Link href={`/admin/seasons/${season.address}`} className="season-card">
       <div className="season-card__top">
         <span className="season-card__title">
           {season.title || "Untitled"}
@@ -47,7 +44,10 @@ export function SeasonCard({ season }: { season: SeasonSummary }) {
       </dl>
 
       {season.palette.length > 0 && (
-        <div className="season-card__palette" title={`${season.palette.length} colors`}>
+        <div
+          className="season-card__palette"
+          title={`${season.palette.length} colors`}
+        >
           {season.palette.slice(0, 16).map((c, i) => (
             <span
               key={i}

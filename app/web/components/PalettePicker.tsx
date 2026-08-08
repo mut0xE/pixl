@@ -13,8 +13,16 @@ export function PalettePicker({
   onSelect: (index: number) => void;
   disabled?: boolean;
 }) {
+  const density =
+    palette.length >= 18 ? "crowded" : palette.length >= 12 ? "dense" : "base";
+
   return (
-    <div className="palette" role="radiogroup" aria-label="Palette">
+    <div
+      className="palette"
+      data-density={density}
+      role="radiogroup"
+      aria-label="Palette"
+    >
       {palette.map((color, i) => (
         <button
           key={i}

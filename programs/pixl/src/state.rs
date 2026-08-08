@@ -156,6 +156,21 @@ impl SeasonProfile {
     pub const SPACE: usize = DISCRIMINATOR_SIZE + Self::INIT_SPACE;
 }
 
+/// A program-owned PDA used as the delegated fee payer for uncapped ER commits.
+/// It is delegated like gameplay accounts and funded on base layer via
+/// `lamportsDelegatedTransferIx`; the Magic program debits it and credits the
+/// validator `magic_fee_vault` on each paid commit.
+#[account]
+#[derive(InitSpace)]
+pub struct FeePayer {
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
+impl FeePayer {
+    pub const SPACE: usize = DISCRIMINATOR_SIZE + Self::INIT_SPACE;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -33,8 +33,18 @@ function toLocal(p: Parts): string {
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 function displayLabel(p: Parts): string {
@@ -74,7 +84,8 @@ export function DateTimeField({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const set = (patch: Partial<Parts>) => onChange(toLocal({ ...parts, ...patch }));
+  const set = (patch: Partial<Parts>) =>
+    onChange(toLocal({ ...parts, ...patch }));
 
   const firstDow = new Date(viewY, viewMo, 1).getDay();
   const daysInMonth = new Date(viewY, viewMo + 1, 0).getDate();

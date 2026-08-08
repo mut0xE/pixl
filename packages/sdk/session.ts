@@ -41,13 +41,15 @@ export function deriveSessionKeypair(
   authority: PublicKey,
   nonce: string | number
 ): Keypair {
-  const seedBytes = new Uint8Array(32);
-  const src = new TextEncoder().encode(
-    authority.toBase58() + ":" + String(nonce)
+  // Hash so every byte of the seed depends on the nonce, instead of XOR-ing
+  // a short repeating pattern over 32 bytes (which silently dropped the
+  // nonce whenever "authority:nonce" was longer than 32 chars, since the
+  // XOR loop never wrapped around to read it).
+  const seedBytes = new Uint8Array(
+    createHash("sha256")
+      .update(authority.toBase58() + ":" + String(nonce))
+      .digest()
   );
-  const raw = new Uint8Array(authority.toBytes());
-  for (let i = 0; i < 32; i++)
-    seedBytes[i] = raw[i] ^ (src[i % src.length] ?? 0);
   return Keypair.fromSeed(seedBytes);
 }
 

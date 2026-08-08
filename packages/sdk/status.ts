@@ -4,6 +4,7 @@ export type BootstrapStatus =
   | "disconnected"
   | "connecting"
   | "loading_game"
+  | "game_missing"
   | "no_active_season"
   | "loading_player"
   | "player_missing"
@@ -43,7 +44,7 @@ export function deriveBootstrapStatus(
   if (!input.connected) return "disconnected";
 
   if (input.game === undefined) return "connecting";
-  if (input.game === null) return "loading_game";
+  if (input.game === null) return "game_missing";
 
   if (input.season === undefined || input.season === null)
     return "loading_game";

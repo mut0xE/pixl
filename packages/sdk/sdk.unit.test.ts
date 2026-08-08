@@ -7,6 +7,7 @@ import {
   deriveGamePda,
   deriveSeasonPda,
   deriveCanvasPda,
+  deriveFeePayerPda,
   deriveSeasonStatsPda,
   derivePlayerPda,
   deriveSeasonProfilePda,
@@ -554,8 +555,9 @@ describe("admin: canvas creation + delegation", () => {
     expect(plan.steps.length).to.equal(1);
     // create + start + delegate_canvas + delegate_stats.
     expect(plan.steps[0].instructions.length).to.equal(4);
-    expect(plan.steps[0].signers[0].publicKey.equals(plan.canvas.publicKey)).to
-      .equal(true);
+    expect(
+      plan.steps[0].signers[0].publicKey.equals(plan.canvas.publicKey)
+    ).to.equal(true);
   });
 
   for (const dim of [256, 512]) {
@@ -718,10 +720,20 @@ describe("deriveBootstrapStatus", () => {
       "disconnected"
     );
   });
-  it("loading_game when game not yet fetched", () => {
-    expect(deriveBootstrapStatus({ ...base, game: null })).to.equal(
-      "loading_game"
+  it("connecting when game not yet fetched", () => {
+    expect(deriveBootstrapStatus({ ...base, game: undefined as any })).to.equal(
+      "connecting"
     );
+  });
+  it("game_missing when game fetch returned null", () => {
+    expect(deriveBootstrapStatus({ ...base, game: null })).to.equal(
+      "game_missing"
+    );
+  });
+  it("loading_game when season not yet fetched", () => {
+    expect(
+      deriveBootstrapStatus({ ...base, season: undefined as any })
+    ).to.equal("loading_game");
   });
   it("no_active_season when current_season is zero", () => {
     expect(deriveBootstrapStatus({ ...base, season: "zero" as any })).to.equal(
@@ -1082,12 +1094,14 @@ describe("admin: season lifecycle builders", () => {
     expect(ix.keys.some((k) => k.pubkey.equals(season))).to.equal(true);
   });
 
-  it("builds commit_gameplay_state with the magic context accounts", async () => {
+  it("builds commit_gameplay_state with the magic context and fee vault accounts", async () => {
+    const magicFeeVault = PublicKey.unique();
     const ix = await buildCommitGameplayStateIx(program, {
       authority,
       season,
       seasonStats,
       canvas,
+      magicFeeVault,
       undelegate: true,
     });
     const payerMeta = ix.keys.find((k) => k.pubkey.equals(authority));
@@ -1098,6 +1112,13 @@ describe("admin: season lifecycle builders", () => {
     expect(ix.keys.some((k) => k.pubkey.equals(MAGIC_CONTEXT_ID))).to.equal(
       true
     );
+    // The validator fee vault must be present and writable.
+    const vaultMeta = ix.keys.find((k) => k.pubkey.equals(magicFeeVault));
+    expect(vaultMeta?.isWritable).to.equal(true);
+    // The delegated fee payer PDA must be present and writable.
+    const feePayer = deriveFeePayerPda(program.programId);
+    const feePayerMeta = ix.keys.find((k) => k.pubkey.equals(feePayer));
+    expect(feePayerMeta?.isWritable).to.equal(true);
   });
 });
 
@@ -1147,5 +1168,17 @@ describe("snapshot export", () => {
     const bytes = snapshotToRgbaBytes(snap);
     expect([...bytes]).to.deep.equal([255, 0, 0, 255, 0, 255, 0, 255]);
     expect(JSON.parse(snapshotToJson(snap)).width).to.equal(2);
+  });
+});
+
+describe("sortContributors", () => {
+  it("sorts by pixels desc then player base58 asc", () => {
+    const { sortContributors } = require("./seasons");
+    const out = sortContributors([
+      { player: "C", pixelsPainted: 7, joinedAt: 1 },
+      { player: "A", pixelsPainted: 7, joinedAt: 1 },
+      { player: "B", pixelsPainted: 9, joinedAt: 1 },
+    ]);
+    expect(out.map((c) => c.player)).to.deep.equal(["B", "A", "C"]);
   });
 });

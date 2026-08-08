@@ -22,12 +22,66 @@ import { TxButton } from "../TxButton";
 import { DateTimeField } from "./DateTimeField";
 
 const DEFAULT_PALETTE = [
-  "#0b0d12",
-  "#eae6da",
-  "#ff5f2e",
-  "#6fd28a",
-  "#f2c14e",
-  "#3a86ff",
+  "#ffffff",
+  "#e4e4e4",
+  "#888888",
+  "#555555",
+  "#222222",
+  "#000000",
+  "#ffa7d1",
+  "#fd4659",
+  "#e50000",
+  "#800000",
+  "#ffddca",
+  "#f6b389",
+  "#e59500",
+  "#ff5b00",
+  "#a06a42",
+  "#604028",
+  "#ffff00",
+  "#94e044",
+  "#02be01",
+  "#005f00",
+  "#43ebc2",
+  "#00d3dd",
+  "#0083c7",
+  "#0000ea",
+  "#030764",
+  "#cf6ee4",
+  "#ff00ff",
+  "#820080",
+  "#b9c3cf",
+  "#777f8c",
+  "#424651",
+  "#1f1e26",
+  "#382215",
+  "#7c3f20",
+  "#c06f37",
+  "#fead6c",
+  "#ffd2b1",
+  "#ffa4d0",
+  "#f14fb4",
+  "#e973ff",
+  "#a630d2",
+  "#531d8c",
+  "#242367",
+  "#0334bf",
+  "#149cff",
+  "#8df5ff",
+  "#01bfa5",
+  "#16777e",
+  "#054523",
+  "#18862f",
+  "#61e021",
+  "#b1ff37",
+  "#ffffa5",
+  "#fde111",
+  "#ff9f17",
+  "#f66e08",
+  "#550022",
+  "#99011a",
+  "#f30f0c",
+  "#ff7872",
 ];
 
 // Random u32 season id so a fresh season never collides with a past PDA.
@@ -39,7 +93,13 @@ function randomSeasonId(): number {
 function normalizeHex(raw: string): string | null {
   const v = raw.trim().replace(/^#/, "");
   if (/^[0-9a-fA-F]{3}$/.test(v)) {
-    return "#" + v.split("").map((c) => c + c).join("");
+    return (
+      "#" +
+      v
+        .split("")
+        .map((c) => c + c)
+        .join("")
+    );
   }
   if (/^[0-9a-fA-F]{6}$/.test(v)) return "#" + v.toLowerCase();
   return null;
@@ -101,7 +161,8 @@ export function CreateSeasonForm({
   // Hold the admin UI to a 512×512 ceiling (well under the 10 MiB account cap).
   const MAX_DIM = 512;
   const capacity = width * height;
-  const badDims = width < 1 || height < 1 || width > MAX_DIM || height > MAX_DIM;
+  const badDims =
+    width < 1 || height < 1 || width > MAX_DIM || height > MAX_DIM;
   const overCap = capacity > MAX_CANVAS_PIXELS;
   const badTimes = toUnix(endTime) <= toUnix(startTime);
 
@@ -258,7 +319,7 @@ export function CreateSeasonForm({
             value={imageUri}
             maxLength={MAX_REFERENCE_LENGTH}
             className={
-              (imageBadScheme || imageTooLong) ? "admin-input--error" : undefined
+              imageBadScheme || imageTooLong ? "admin-input--error" : undefined
             }
             onChange={(e) => setImageUri(e.target.value)}
             placeholder="ipfs://… or https://…"

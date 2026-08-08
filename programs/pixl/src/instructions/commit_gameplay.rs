@@ -5,7 +5,7 @@ use ephemeral_rollups_sdk::{
 };
 
 use crate::{
-    constants::{PLAYER_SEED, SEASON_PROFILE_SEED, SEASON_SEED, SEASON_STATS_SEED},
+    constants::{FEE_PAYER_SEED, PLAYER_SEED, SEASON_PROFILE_SEED, SEASON_SEED, SEASON_STATS_SEED},
     state::{Canvas, Player, Season, SeasonProfile, SeasonStats},
     PixlError,
 };
@@ -15,6 +15,17 @@ use crate::{
 pub struct CommitSharedState<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    /// Delegated fee payer PDA that pays the commit fee (lifts the 10-commit
+    /// sponsored cap). Passed as raw AccountInfo since it is delegated; signed
+    /// via seeds. CHECK: address verified against `[FEE_PAYER_SEED]` in handler.
+    #[account(mut)]
+    pub fee_payer: AccountInfo<'info>,
+
+    /// Validator fee vault credited with each paid commit. The Magic program
+    /// validates this destination. CHECK: validated by the Magic program.
+    #[account(mut)]
+    pub magic_fee_vault: AccountInfo<'info>,
 
     #[account(
         seeds = [SEASON_SEED, &season.id.to_le_bytes()],
@@ -39,7 +50,11 @@ pub struct CommitSharedState<'info> {
 }
 
 pub fn handle_commit_shared(ctx: Context<CommitSharedState>, undelegate: bool) -> Result<()> {
-    let payer = ctx.accounts.payer.to_account_info();
+    let fee_payer_bump = verify_fee_payer(&ctx.accounts.fee_payer, ctx.program_id)?;
+    let payer_seeds: &[&[u8]] = &[FEE_PAYER_SEED, &[fee_payer_bump]];
+
+    let fee_payer = ctx.accounts.fee_payer.to_account_info();
+    let magic_fee_vault = ctx.accounts.magic_fee_vault.to_account_info();
     let magic_context = ctx.accounts.magic_context.to_account_info();
     let magic_program = ctx.accounts.magic_program.to_account_info();
     let canvas = ctx.accounts.canvas.to_account_info();
@@ -52,16 +67,26 @@ pub fn handle_commit_shared(ctx: Context<CommitSharedState>, undelegate: bool) -
             PixlError::SeasonNotEnded
         );
 
-        MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
+        MagicIntentBundleBuilder::new(fee_payer, magic_context, magic_program)
+            .magic_fee_vault(magic_fee_vault)
             .commit(&[canvas])
             .commit_and_undelegate(&[season_stats])
-            .build_and_invoke()?;
+            .build_and_invoke_signed(&[payer_seeds])?;
     } else {
-        MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
+        MagicIntentBundleBuilder::new(fee_payer, magic_context, magic_program)
+            .magic_fee_vault(magic_fee_vault)
             .commit(&[canvas, season_stats])
-            .build_and_invoke()?;
+            .build_and_invoke_signed(&[payer_seeds])?;
     }
     Ok(())
+}
+
+/// Verifies the passed fee payer matches the program's `[FEE_PAYER_SEED]` PDA
+/// and returns its bump for seed signing.
+fn verify_fee_payer(fee_payer: &AccountInfo, program_id: &Pubkey) -> Result<u8> {
+    let (expected, bump) = Pubkey::find_program_address(&[FEE_PAYER_SEED], program_id);
+    require_keys_eq!(expected, fee_payer.key(), PixlError::InvalidAccountState);
+    Ok(bump)
 }
 
 #[commit]
@@ -69,6 +94,14 @@ pub fn handle_commit_shared(ctx: Context<CommitSharedState>, undelegate: bool) -
 pub struct CommitAndUndelegatePlayer<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    /// CHECK: address verified against `[FEE_PAYER_SEED]` in handler.
+    #[account(mut)]
+    pub fee_payer: AccountInfo<'info>,
+
+    /// CHECK: validated by the Magic program.
+    #[account(mut)]
+    pub magic_fee_vault: AccountInfo<'info>,
 
     #[account(
         seeds = [SEASON_SEED, &season.id.to_le_bytes()],
@@ -100,16 +133,21 @@ pub fn handle_commit_and_undelegate_player(ctx: Context<CommitAndUndelegatePlaye
         PixlError::SeasonNotEnded
     );
 
-    let payer = ctx.accounts.payer.to_account_info();
+    let fee_payer_bump = verify_fee_payer(&ctx.accounts.fee_payer, ctx.program_id)?;
+    let payer_seeds: &[&[u8]] = &[FEE_PAYER_SEED, &[fee_payer_bump]];
+
+    let fee_payer = ctx.accounts.fee_payer.to_account_info();
+    let magic_fee_vault = ctx.accounts.magic_fee_vault.to_account_info();
     let magic_context = ctx.accounts.magic_context.to_account_info();
     let magic_program = ctx.accounts.magic_program.to_account_info();
 
     // The player PDA lives across seasons, so only commit it (kept delegated);
     // just the per-season profile is undelegated and finalized.
-    MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
+    MagicIntentBundleBuilder::new(fee_payer, magic_context, magic_program)
+        .magic_fee_vault(magic_fee_vault)
         .commit(&[ctx.accounts.player.to_account_info()])
         .commit_and_undelegate(&[ctx.accounts.season_profile.to_account_info()])
-        .build_and_invoke()?;
+        .build_and_invoke_signed(&[payer_seeds])?;
 
     Ok(())
 }

@@ -3,9 +3,11 @@ import { useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
+  assertFeePayerReady,
   buildCommitGameplayStateIx,
   buildEndSeasonIx,
   deriveSeasonStatsPda,
+  resolveMagicFeeVault,
   type SeasonSummary,
 } from "../../../../packages/sdk";
 import { usePixlProgram } from "../../lib/program";
@@ -48,6 +50,15 @@ export function SeasonLifecyclePanel({
       const { program, authority } = requireCtx();
       const [seasonStats] = deriveSeasonStatsPda(program.programId, seasonPk);
 
+      // Fail fast with actionable guidance if the fee payer isn't set up —
+      // otherwise the commit fails on-chain with a cryptic error.
+      await assertFeePayerReady(connection, program.programId);
+
+      // Resolve the validator fee vault from a delegated account's L1 delegation
+      // record (canvas is delegated for the whole season). The delegated fee
+      // payer pays each commit here, lifting the 10 sponsored-commit cap.
+      const magicFeeVault = await resolveMagicFeeVault(connection, canvasPk);
+
       // Preferred path: sign the ER commit with a session key (commit accepts any
       // signer as `payer`), so the wallet never sees the ER blockhash.
       try {
@@ -62,6 +73,7 @@ export function SeasonLifecyclePanel({
           season: seasonPk,
           seasonStats,
           canvas: canvasPk,
+          magicFeeVault,
           undelegate,
         });
         setState("confirming");
@@ -74,12 +86,16 @@ export function SeasonLifecyclePanel({
         if ((err as { signature?: string })?.signature) throw err;
         // Fallback: no usable session — sign the ER commit with the wallet
         // directly (works on-chain, but the wallet warns about a network mismatch).
-        console.warn("Session commit failed, falling back to wallet ER sign", err);
+        console.warn(
+          "Session commit failed, falling back to wallet ER sign",
+          err
+        );
         const ix = await buildCommitGameplayStateIx(program, {
           authority,
           season: seasonPk,
           seasonStats,
           canvas: canvasPk,
+          magicFeeVault,
           undelegate,
         });
         setState("awaiting_signature");

@@ -47,7 +47,9 @@ export function CommunityCard({
 
       <div className="community-card__progress">
         <div className="community-card__progress-head">
-          <span className="community-card__progress-label">Season progress</span>
+          <span className="community-card__progress-label">
+            Season progress
+          </span>
           <span className="community-card__progress-pct">
             {formatPercent(progress)}
           </span>

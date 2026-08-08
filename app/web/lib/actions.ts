@@ -21,8 +21,15 @@ import {
   type SessionMeta,
 } from "../../../packages/sdk";
 
-// Gum session program caps validity at 7 days; use the full window.
-export const SESSION_VALID_SECONDS = 60 * 60 * 24 * 7;
+// Gum caps validity at 7 days. Leave headroom for client/RPC clock drift so
+// wallets do not reject the setup simulation with `ValidityTooLong`.
+export const SESSION_VALID_SECONDS = 60 * 60 * 24 * 6;
+const ACTION_LOG = "[pixl:actions]";
+
+function shortKey(key: PublicKey): string {
+  const text = key.toBase58();
+  return `${text.slice(0, 4)}...${text.slice(-4)}`;
+}
 
 // Revoke instruction for the wallet's stored session (to reclaim its top-up +
 // rent), or null if there is nothing on-chain to revoke.
@@ -45,6 +52,7 @@ async function buildRevokeStaleSessionIx(
   });
 }
 import type { Pixl } from "../../../target/types/pixl";
+import { pixlError, pixlLog } from "./debug";
 import { getErConnection } from "./er";
 import {
   loadSessionMeta,
@@ -60,6 +68,34 @@ export interface FailedTxError extends Error {
   signature: string;
   txCluster: TxCluster;
   logs?: string[];
+}
+
+function logTransactionError(
+  label: string,
+  err: unknown,
+  context: Record<string, unknown> = {}
+): void {
+  const anyErr = err as {
+    logs?: unknown;
+    signature?: unknown;
+    txCluster?: unknown;
+    transactionMessage?: unknown;
+  };
+  console.groupCollapsed(`${ACTION_LOG} ${label} failed`);
+  pixlError(ACTION_LOG, `${label} raw error`, err, context);
+  pixlLog(ACTION_LOG, `${label} context`, context);
+  if (anyErr?.signature) pixlLog(ACTION_LOG, "signature", anyErr.signature);
+  if (anyErr?.txCluster) pixlLog(ACTION_LOG, "cluster", anyErr.txCluster);
+  if (anyErr?.transactionMessage) {
+    pixlLog(ACTION_LOG, "transaction message", anyErr.transactionMessage);
+  }
+  if (Array.isArray(anyErr?.logs)) {
+    console.groupCollapsed(`${ACTION_LOG} program logs`);
+    pixlLog(ACTION_LOG, "program logs", anyErr.logs);
+    anyErr.logs.forEach((line, i) => console.log(`${i}: ${line}`));
+    console.groupEnd();
+  }
+  console.groupEnd();
 }
 
 // confirmTransaction resolves even when the program reverted (failure lives in
@@ -84,6 +120,11 @@ async function confirmOrThrow(
     err.signature = signature;
     err.txCluster = cluster;
     err.logs = logs;
+    logTransactionError("confirmed transaction", err, {
+      cluster,
+      explorerSignature: signature,
+      chainErr: res.value.err,
+    });
     throw err;
   }
   return signature;
@@ -102,9 +143,33 @@ export async function sendIx(
   tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
   if (extraSigners.length) tx.partialSign(...extraSigners);
-  const signed = await wallet.signTransaction(tx);
-  const sig = await connection.sendRawTransaction(signed.serialize(), {
+  pixlLog(ACTION_LOG, "sendIx prepared", {
+    cluster: opts.cluster ?? "l1",
+    feePayer: wallet.publicKey.toBase58(),
+    instructionCount: ixs.length,
+    extraSigners: extraSigners.map((s) => s.publicKey.toBase58()),
+    programIds: ixs.map((ix) => ix.programId.toBase58()),
     skipPreflight: opts.skipPreflight ?? false,
+  });
+  const signed = await wallet.signTransaction(tx);
+  let sig: string;
+  try {
+    sig = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: opts.skipPreflight ?? false,
+    });
+  } catch (err) {
+    logTransactionError("sendRawTransaction", err, {
+      cluster: opts.cluster ?? "l1",
+      feePayer: wallet.publicKey.toBase58(),
+      instructionCount: ixs.length,
+      programIds: ixs.map((ix) => ix.programId.toBase58()),
+      skipPreflight: opts.skipPreflight ?? false,
+    });
+    throw err;
+  }
+  pixlLog(ACTION_LOG, "sendIx submitted", {
+    cluster: opts.cluster ?? "l1",
+    signature: sig,
   });
   return confirmOrThrow(connection, sig, opts.cluster ?? "l1");
 }
@@ -121,8 +186,31 @@ export async function sendErIxSigned(
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = (await er.getLatestBlockhash()).blockhash;
   tx.sign(signer);
-  const sig = await er.sendRawTransaction(tx.serialize(), {
+  pixlLog(ACTION_LOG, "sendErIxSigned prepared", {
+    cluster: "er",
+    feePayer: signer.publicKey.toBase58(),
+    instructionCount: ixs.length,
+    programIds: ixs.map((ix) => ix.programId.toBase58()),
     skipPreflight: opts.skipPreflight ?? true,
+  });
+  let sig: string;
+  try {
+    sig = await er.sendRawTransaction(tx.serialize(), {
+      skipPreflight: opts.skipPreflight ?? true,
+    });
+  } catch (err) {
+    logTransactionError("sendRawTransaction ER", err, {
+      cluster: "er",
+      feePayer: signer.publicKey.toBase58(),
+      instructionCount: ixs.length,
+      programIds: ixs.map((ix) => ix.programId.toBase58()),
+      skipPreflight: opts.skipPreflight ?? true,
+    });
+    throw err;
+  }
+  pixlLog(ACTION_LOG, "sendErIxSigned submitted", {
+    cluster: "er",
+    signature: sig,
   });
   return confirmOrThrow(er, sig, "er");
 }
@@ -240,7 +328,10 @@ export async function joinActiveSeason(
   const baseIxNames: string[] = [];
 
   // The shared Player is delegated exactly once, then reused across seasons.
-  const playerInfo = await baseConnection.getAccountInfo(playerPda, "confirmed");
+  const playerInfo = await baseConnection.getAccountInfo(
+    playerPda,
+    "confirmed"
+  );
   const playerDelegated =
     playerInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
 
@@ -428,14 +519,52 @@ export async function setUpSession(
   topUpLamports = 10_000_000
 ): Promise<{ meta: SessionMeta; secret: Keypair; signature: string }> {
   if (!wallet.publicKey) throw new Error("Wallet not connected");
-  // Re-derivable from wallet pubkey + nonce, so the secret is never persisted.
-  const secret = deriveSessionKeypair(wallet.publicKey, nonce);
-  const validUntil = Math.floor(Date.now() / 1000) + validForSeconds;
-  const { instruction, sessionToken } = buildCreateSessionV2Ix({
+  console.groupCollapsed(
+    `${ACTION_LOG} setup session ${shortKey(wallet.publicKey)}`
+  );
+  // A wallet that used the app before (e.g. on another browser/device) may
+  // already have a session token PDA on-chain for this nonce that our local
+  // storage doesn't know about. Reusing that nonce makes create_session_v2
+  // try to init an account that already exists -> "Custom error 0". Walk
+  // forward to a nonce whose PDA is actually free.
+  let secret = deriveSessionKeypair(wallet.publicKey, nonce);
+  let built = buildCreateSessionV2Ix({
     targetProgram: programId,
     authority: wallet.publicKey,
     sessionSigner: secret.publicKey,
-    validUntil,
+    validUntil: Math.floor(Date.now() / 1000) + validForSeconds,
+    topUpLamports,
+  });
+  let guard = 0;
+  while (
+    (await connection.getAccountInfo(built.sessionToken, "confirmed")) !==
+      null &&
+    guard++ < 20
+  ) {
+    pixlLog(ACTION_LOG, "session token PDA already exists, bumping nonce", {
+      nonce,
+      sessionToken: built.sessionToken.toBase58(),
+    });
+    nonce += 1;
+    secret = deriveSessionKeypair(wallet.publicKey, nonce);
+    built = buildCreateSessionV2Ix({
+      targetProgram: programId,
+      authority: wallet.publicKey,
+      sessionSigner: secret.publicKey,
+      validUntil: Math.floor(Date.now() / 1000) + validForSeconds,
+      topUpLamports,
+    });
+  }
+  const validUntil = Math.floor(Date.now() / 1000) + validForSeconds;
+  const { instruction, sessionToken } = built;
+  pixlLog(ACTION_LOG, "session params", {
+    wallet: wallet.publicKey.toBase58(),
+    programId: programId.toBase58(),
+    sessionSigner: secret.publicKey.toBase58(),
+    sessionToken: sessionToken.toBase58(),
+    nonce,
+    validUntil: new Date(validUntil * 1000).toISOString(),
+    validForSeconds,
     topUpLamports,
   });
   // Close the previous session in the same signature to reclaim its top-up + rent.
@@ -445,15 +574,27 @@ export async function setUpSession(
     programId
   );
   const ixs = revokeIx ? [revokeIx, instruction] : [instruction];
-  const signature = await sendIx(connection, wallet, ixs, [secret]);
-  return {
-    meta: {
-      sessionSigner: secret.publicKey.toBase58(),
-      sessionToken: sessionToken.toBase58(),
-      validUntil,
-      nonce,
-    },
-    secret,
-    signature,
-  };
+  pixlLog(ACTION_LOG, "session tx", {
+    instructionCount: ixs.length,
+    includesRevoke: Boolean(revokeIx),
+  });
+  try {
+    const signature = await sendIx(connection, wallet, ixs, [secret]);
+    pixlLog(ACTION_LOG, "session confirmed", { signature });
+    return {
+      meta: {
+        sessionSigner: secret.publicKey.toBase58(),
+        sessionToken: sessionToken.toBase58(),
+        validUntil,
+        nonce,
+      },
+      secret,
+      signature,
+    };
+  } catch (err) {
+    pixlError(ACTION_LOG, "session setup failed", err);
+    throw err;
+  } finally {
+    console.groupEnd();
+  }
 }

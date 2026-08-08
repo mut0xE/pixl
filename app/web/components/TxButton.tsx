@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { normalizeError } from "../../../packages/sdk";
+import { pixlError, pixlLog } from "../lib/debug";
 import { erExplorerTxUrl } from "../lib/er";
 import type { TxCluster } from "../lib/actions";
 import { useToast } from "./Toast";
@@ -44,6 +45,8 @@ export function TxButton({
   onDone,
   disabled,
   explorer = "l1",
+  inlineFeedback = true,
+  toastProgress = false,
 }: {
   label: string;
   onRun: (setState: (s: TxState) => void) => Promise<string>;
@@ -51,23 +54,42 @@ export function TxButton({
   disabled?: boolean;
   /** Chain this action settles on, used to build the success Explorer link. */
   explorer?: TxCluster;
+  /** Render progress/success/error feedback inline under the button. */
+  inlineFeedback?: boolean;
+  /** Announce progress phases in toast notifications instead of the card body. */
+  toastProgress?: boolean;
 }) {
   const [state, setState] = useState<TxState>("idle");
   const [signature, setSignature] = useState<string | null>(null);
   const [errInfo, setErrInfo] = useState<ErrInfo | null>(null);
   const toast = useToast();
+  const lastToastState = useRef<TxState | null>(null);
 
   const busy =
     state === "building" ||
     state === "awaiting_signature" ||
     state === "confirming";
 
+  function applyState(next: TxState) {
+    setState(next);
+    if (!toastProgress || lastToastState.current === next) return;
+    lastToastState.current = next;
+    if (next === "building") {
+      toast.info(label, "Building transaction...");
+    } else if (next === "awaiting_signature") {
+      toast.info(label, "Waiting for wallet signature...");
+    } else if (next === "confirming") {
+      toast.info(label, "Confirming transaction...");
+    }
+  }
+
   async function handleClick() {
     setSignature(null);
     setErrInfo(null);
-    setState("building");
+    lastToastState.current = null;
+    applyState("building");
     try {
-      const sig = await onRun(setState);
+      const sig = await onRun(applyState);
       setSignature(sig);
       setState("success");
       toast.success("Transaction confirmed", label);
@@ -75,7 +97,25 @@ export function TxButton({
     } catch (err) {
       const normalized = normalizeError(err);
       // A reverted tx carries its signature — link straight to the failed tx.
-      const failed = err as { signature?: string; txCluster?: TxCluster };
+      const failed = err as {
+        signature?: string;
+        txCluster?: TxCluster;
+        logs?: string[];
+      };
+      console.groupCollapsed(`[pixl:tx-button] ${label} failed`);
+      pixlError("[pixl:tx-button]", `${label} raw error`, err);
+      pixlLog("[pixl:tx-button]", `${label} normalized`, normalized);
+      pixlLog("[pixl:tx-button]", `${label} signature`, {
+        signature: failed?.signature ?? null,
+        cluster: failed?.txCluster ?? explorer,
+      });
+      if (Array.isArray(failed?.logs)) {
+        console.groupCollapsed("[pixl:tx-button] program logs");
+        pixlLog("[pixl:tx-button]", `${label} program logs`, failed.logs);
+        failed.logs.forEach((line, i) => console.log(`${i}: ${line}`));
+        console.groupEnd();
+      }
+      console.groupEnd();
       setErrInfo({
         ...normalized,
         signature: failed?.signature ?? null,
@@ -93,9 +133,9 @@ export function TxButton({
         disabled={busy || disabled}
         className="tx-button__button"
       >
-        {busy ? STATE_LABEL[state] : label}
+        {busy && inlineFeedback ? STATE_LABEL[state] : label}
       </button>
-      {state === "success" && signature && (
+      {inlineFeedback && state === "success" && signature && (
         <a
           className="tx-button__link"
           href={explorerUrl(signature, explorer)}
@@ -105,7 +145,7 @@ export function TxButton({
           View transaction ↗
         </a>
       )}
-      {state === "error" && errInfo?.signature && (
+      {inlineFeedback && state === "error" && errInfo?.signature && (
         <a
           className="tx-button__link"
           href={explorerUrl(errInfo.signature, errInfo.cluster)}

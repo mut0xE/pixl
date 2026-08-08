@@ -1,19 +1,30 @@
 /**
  * Image -> Artwork converter.
  *
- * A pure, DOM-free function that turns raw RGBA pixel data into a season
- * {@link Artwork} (a row-major grid of palette indexes with
- * {@link TRANSPARENT_INDEX} for untouched cells). The admin UI decodes an image
- * to {@link SourceImage} via a `<canvas>` and calls {@link convertImageToArtwork};
+ * A pure, DOM-free function that turns raw RGBA pixel data into a row-major
+ * artwork grid of palette indexes with {@link TRANSPARENT_INDEX} for untouched
+ * cells. The admin UI decodes an image to {@link SourceImage} via a `<canvas>`
+ * and calls {@link convertImageToArtwork};
  * unit tests exercise the same function against synthetic pixel data.
  *
  * Pipeline: fit (contain/crop) -> area-average downsample -> alpha threshold ->
  * nearest palette color (weighted RGB). The artwork is clamped to the season's
  * live canvas bounds. Already-painted canvas pixels are not consulted.
  */
-
-import { TRANSPARENT_INDEX, type Artwork } from "./blueprint";
 import { u32ToRgba, type Rgba } from "./canvas";
+
+export const TRANSPARENT_INDEX = 255;
+
+export interface Artwork {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  transparentIndex: number;
+  pixels: number[];
+}
 
 /** Raw decoded image: RGBA, row-major, `data.length === width * height * 4`. */
 export interface SourceImage {
@@ -40,13 +51,19 @@ export interface ConvertOptions {
   fit?: "contain" | "crop";
   /** Averaged alpha below this becomes transparent. Default 128. */
   alphaThreshold?: number;
+  /**
+   * Snap every visible cell to a single palette color (the nearest match to the
+   * image's dominant ink). Produces a clean, speckle-free silhouette that works
+   * on palettes lacking the source's exact colors. Default false.
+   */
+  monochrome?: boolean;
   id: string;
   name: string;
 }
 
 /** Result of a conversion. */
 export interface ConvertResult {
-  /** Ready for `blueprint.ts` / JSON export. */
+  /** Ready for storage or JSON export. */
   artwork: Artwork;
   /** Number of non-transparent target cells. */
   targetPixelCount: number;
@@ -96,7 +113,15 @@ function nearestPaletteIndex(color: Rgba, palette: Rgba[]): number {
   return best;
 }
 
-/** Straight (non-premultiplied) average of the source over [sx0,sx1) x [sy0,sy1). */
+/**
+ * Alpha-weighted average of the source over [sx0,sx1) x [sy0,sy1).
+ *
+ * Color is weighted by each pixel's alpha so anti-aliased edges reflect the
+ * actual ink color instead of blending toward the (usually black) transparent
+ * background. Without this, half-covered edge cells average to muddy grey and
+ * quantize to random palette hues — the "rainbow speckle". Returned alpha is
+ * the plain mean coverage, used only for the transparency threshold.
+ */
 function averageRegion(
   src: SourceImage,
   sx0: number,
@@ -107,7 +132,8 @@ function averageRegion(
   let r = 0,
     g = 0,
     b = 0,
-    a = 0,
+    aSum = 0,
+    wSum = 0,
     n = 0;
   const x0 = Math.max(0, Math.floor(sx0));
   const y0 = Math.max(0, Math.floor(sy0));
@@ -116,15 +142,20 @@ function averageRegion(
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * src.width + x) * 4;
-      r += src.data[i];
-      g += src.data[i + 1];
-      b += src.data[i + 2];
-      a += src.data[i + 3];
+      const w = src.data[i + 3];
+      r += src.data[i] * w;
+      g += src.data[i + 1] * w;
+      b += src.data[i + 2] * w;
+      aSum += w;
+      wSum += w;
       n++;
     }
   }
   if (n === 0) return { r: 0, g: 0, b: 0, a: 0 };
-  return { r: r / n, g: g / n, b: b / n, a: a / n };
+  const a = aSum / n;
+  // Fully transparent region: no ink to weight, report transparent.
+  if (wSum === 0) return { r: 0, g: 0, b: 0, a: 0 };
+  return { r: r / wSum, g: g / wSum, b: b / wSum, a };
 }
 
 /** Convert a decoded image into a canvas-bounded {@link Artwork}. */
@@ -151,6 +182,16 @@ export function convertImageToArtwork(
   const y = clampInt(opts.y ?? 0, 0, canvasHeight - height);
 
   const paletteRgba = palette.map(u32ToRgba);
+
+  // Monochrome: pick one palette index for the whole image, matched to its
+  // alpha-weighted dominant ink color. Guarantees a clean single-color
+  // silhouette regardless of palette contents.
+  const monoIndex = opts.monochrome
+    ? nearestPaletteIndex(
+        averageRegion(src, 0, 0, src.width, src.height),
+        paletteRgba
+      )
+    : -1;
 
   // Fit maths: contain scales to fit inside (margins), crop scales to cover.
   const scaleContain = Math.min(width / src.width, height / src.height);
@@ -186,7 +227,7 @@ export function convertImageToArtwork(
         continue;
       }
 
-      const pi = nearestPaletteIndex(avg, paletteRgba);
+      const pi = monoIndex >= 0 ? monoIndex : nearestPaletteIndex(avg, paletteRgba);
       pixels[idx] = pi;
       targetPixelCount++;
       const c = paletteRgba[pi];

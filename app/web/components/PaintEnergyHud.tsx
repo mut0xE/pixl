@@ -9,9 +9,6 @@ import {
 // Paint-energy HUD. Presentational: projects the ER Player forward with the same
 // math the program runs on refresh; painting still re-checks via canPaint.
 
-// Above this many blocks the pip grid becomes noise; fall back to a bar.
-const MAX_PIPS = 24;
-
 function formatCountdown(seconds: number): string {
   const s = Math.max(0, Math.ceil(seconds));
   if (s < 60) return `${s}s`;
@@ -44,12 +41,20 @@ export function PaintEnergyHud({
   energy,
   session,
   variant = "card",
+  alertTick = 0,
+  error = null,
+  hover = null,
+  canvas = null,
 }: {
   energy: PlayerEnergy | null;
   session: SessionMeta | null;
   // "pill" is the compact single-line readout that lives in the top bar; "card"
   // is the full stacked HUD.
   variant?: "card" | "pill";
+  alertTick?: number;
+  error?: string | null;
+  hover?: { x: number; y: number } | null;
+  canvas?: { width: number; height: number; frozen?: boolean } | null;
 }) {
   const now = Math.floor(Date.now() / 1000);
   const pill = variant === "pill";
@@ -81,6 +86,11 @@ export function PaintEnergyHud({
           </span>
           <span className="energy-hud__status">syncing…</span>
         </div>
+        {error && (
+          <p className="energy-hud__error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     );
   }
@@ -142,7 +152,12 @@ export function PaintEnergyHud({
   }
 
   return (
-    <div className="energy-hud" data-state={state}>
+    <div
+      className="energy-hud"
+      data-state={state}
+      data-alert={alertTick > 0 || undefined}
+      key={alertTick}
+    >
       <div className="energy-hud__head">
         <span className="energy-hud__eyebrow">Paint energy</span>
       </div>
@@ -168,39 +183,6 @@ export function PaintEnergyHud({
         </span>
       </div>
 
-      {max <= MAX_PIPS ? (
-        <div
-          className="energy-hud__pips"
-          role="meter"
-          aria-valuemin={0}
-          aria-valuemax={max}
-          aria-valuenow={available}
-          aria-label="Paint energy"
-        >
-          {Array.from({ length: max }, (_, i) => (
-            <span
-              key={i}
-              className="energy-hud__pip"
-              data-filled={i < available || undefined}
-            />
-          ))}
-        </div>
-      ) : (
-        <div
-          className="energy-hud__bar"
-          role="meter"
-          aria-valuemin={0}
-          aria-valuemax={max}
-          aria-valuenow={available}
-          aria-label="Paint energy"
-        >
-          <span
-            className="energy-hud__bar-fill"
-            style={{ width: `${(available / max) * 100}%` }}
-          />
-        </div>
-      )}
-
       <div className="energy-hud__session" data-session={session_.kind}>
         {session_.kind === "active" ? (
           <>
@@ -219,6 +201,33 @@ export function PaintEnergyHud({
           </>
         )}
       </div>
+
+      {error && (
+        <p className="energy-hud__error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {(hover || canvas) && (
+        <div className="energy-hud__tools">
+          <div className="energy-hud__facts" data-cols={canvas ? "2" : "1"}>
+            <div className="energy-hud__fact">
+              <span className="energy-hud__fact-label">X/Y</span>
+              <span className="energy-hud__fact-value">
+                {hover ? `${hover.x}, ${hover.y}` : "—"}
+              </span>
+            </div>
+            {canvas && (
+              <div className="energy-hud__fact">
+                <span className="energy-hud__fact-label">Canvas</span>
+                <span className="energy-hud__fact-value">
+                  {canvas.width}×{canvas.height}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

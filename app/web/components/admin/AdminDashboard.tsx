@@ -4,6 +4,7 @@ import Link from "next/link";
 import { summarizeSeasonCounts } from "../../../../packages/sdk";
 import { useSeasons } from "../../lib/useSeasons";
 import { AdminShell } from "./AdminShell";
+import { FeePayerPanel } from "./FeePayerPanel";
 
 // Admin landing: a fork between creating a new season and managing the roster.
 export function AdminDashboard() {
@@ -57,18 +58,9 @@ export function AdminDashboard() {
             <span className="admin-action__go">Open roster →</span>
           </Link>
 
-          <Link href="/admin/converter" className="admin-action">
-            <span className="admin-action__index">03</span>
-            <span className="admin-action__glyph" aria-hidden>
-              ◧
-            </span>
-            <span className="admin-action__title">Image converter</span>
-            <span className="admin-action__note">
-              Turn a PNG / JPG into an Artwork mapped onto a season’s canvas and
-              palette, then export the blueprint JSON.
-            </span>
-            <span className="admin-action__go">Open converter →</span>
-          </Link>
+          <div className="admin-actions__wide">
+            <FeePayerPanel />
+          </div>
         </div>
       )}
     </AdminShell>

@@ -13,8 +13,13 @@ function shortKey(k: string): string {
 export function WalletControl() {
   const { publicKey, connected, disconnect } = useWallet();
   const toast = useToast();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Dismiss the menu on any outside click or Escape.
   useEffect(() => {
@@ -32,6 +37,17 @@ export function WalletControl() {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // WalletMultiButton mutates its internal markup client-side, which can cause
+  // a server/client mismatch during hydration. Hold a stable placeholder until
+  // mount, then hand over to the wallet adapter UI.
+  if (!mounted) {
+    return (
+      <button type="button" className="wallet-adapter-button" disabled>
+        Select Wallet
+      </button>
+    );
+  }
 
   if (!connected || !publicKey) return <WalletMultiButton />;
 
@@ -73,7 +89,7 @@ export function WalletControl() {
           {open ? "▴" : "▾"}
         </span>
       </button>
-      {open && (
+      {open && mounted && (
         <div className="wallet-control__menu" role="menu">
           <button
             type="button"

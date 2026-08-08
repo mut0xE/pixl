@@ -3,6 +3,7 @@ pub const SEASON_SEED: &[u8] = b"season";
 pub const SEASON_STATS_SEED: &[u8] = b"season_stats";
 pub const PLAYER_SEED: &[u8] = b"player";
 pub const SEASON_PROFILE_SEED: &[u8] = b"season_profile";
+pub const FEE_PAYER_SEED: &[u8] = b"fee_payer";
 
 pub const CANVAS_WIDTH: u16 = 512;
 pub const CANVAS_HEIGHT: u16 = 512;

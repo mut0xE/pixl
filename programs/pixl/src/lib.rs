@@ -28,6 +28,10 @@ pub mod pixl {
         instructions::init_player::handle_init_player(ctx)
     }
 
+    pub fn init_fee_payer(ctx: Context<InitFeePayer>) -> Result<()> {
+        instructions::init_fee_payer::handle_init_fee_payer(ctx)
+    }
+
     pub fn end_season(ctx: Context<EndSeason>) -> Result<()> {
         instructions::end_season::handle_end_season(ctx)
     }

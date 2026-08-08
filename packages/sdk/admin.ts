@@ -14,6 +14,7 @@ import {
   canvasFitsSingleTx,
 } from "./canvas";
 import { MAGIC_CONTEXT_ID, MAGIC_PROGRAM_ID } from "./crank";
+import { deriveFeePayerPda } from "./feePayer";
 import {
   derivePlayerPda,
   deriveSeasonPda,
@@ -187,6 +188,48 @@ export function buildDelegateSeasonProfileIx(
     { seasonProfile: { season: params.season, wallet: params.wallet } },
     profile,
     params
+  );
+}
+
+/**
+ * Creates the program-owned fee payer PDA. Callable once by the game authority.
+ * Base-layer transaction.
+ */
+export function buildInitFeePayerIx(
+  program: PixlProgram,
+  params: { authority: PublicKey; game: PublicKey }
+): Promise<TransactionInstruction> {
+  return (program.methods as any)
+    .initFeePayer()
+    .accounts({
+      authority: params.authority,
+      game: params.game,
+      feePayer: deriveFeePayerPda(program.programId),
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+}
+
+/**
+ * Delegates the fee payer PDA to the ER validator so it can pay commit fees.
+ * Base-layer transaction; must run before the fee payer can pay commits. The
+ * `season` slot is unused for this variant, so the game account is passed there.
+ */
+export function buildDelegateFeePayerIx(
+  program: PixlProgram,
+  params: { payer: PublicKey; game: PublicKey; validator?: PublicKey | null }
+): Promise<TransactionInstruction> {
+  const feePayer = deriveFeePayerPda(program.programId);
+  return buildDelegateAnyIx(
+    program,
+    { feePayer: {} },
+    feePayer,
+    {
+      payer: params.payer,
+      season: params.game,
+      game: params.game,
+      validator: params.validator ?? null,
+    }
   );
 }
 
@@ -372,6 +415,8 @@ export function buildCommitGameplayStateIx(
     season: PublicKey;
     seasonStats: PublicKey;
     canvas: PublicKey;
+    /** Validator-scoped vault credited with the commit fee (see resolveMagicFeeVault). */
+    magicFeeVault: PublicKey;
     undelegate: boolean;
   }
 ): Promise<TransactionInstruction> {
@@ -379,6 +424,8 @@ export function buildCommitGameplayStateIx(
     .commitGameplayState(params.undelegate)
     .accounts({
       payer: params.authority,
+      feePayer: deriveFeePayerPda(program.programId),
+      magicFeeVault: params.magicFeeVault,
       season: params.season,
       seasonStats: params.seasonStats,
       canvas: params.canvas,

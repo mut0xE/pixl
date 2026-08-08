@@ -81,7 +81,10 @@ function writeCache(seasonAddress: PublicKey, data: CanvasData) {
       pixels: packPixels(data.pixels),
       canvasAddress: data.canvasAddress.toBase58(),
     };
-    window.localStorage.setItem(cacheKey(seasonAddress), JSON.stringify(cached));
+    window.localStorage.setItem(
+      cacheKey(seasonAddress),
+      JSON.stringify(cached)
+    );
   } catch {
     // Quota or serialization failure is non-fatal — the fresh fetch still works.
   }

@@ -3,7 +3,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PublicKey, Keypair } from "@solana/web3.js";
 import {
-  fitCamera,
   zoomAt,
   panBy,
   clampOffset,
@@ -12,6 +11,7 @@ import {
   u32ToRgba,
   computeContributionPct,
   formatPercent,
+  MIN_SCALE,
   type Camera,
   type SessionMeta,
 } from "../../../packages/sdk";
@@ -19,6 +19,7 @@ import { useCanvasData, type CanvasData } from "../lib/useCanvasData";
 import { useErProgram, erExplorerTxUrl } from "../lib/er";
 import { usePainting } from "../lib/usePainting";
 import { PalettePicker } from "./PalettePicker";
+import { PaintEnergyHud } from "./PaintEnergyHud";
 import { CommunityCard } from "./CommunityCard";
 import { useContribution } from "../lib/useContribution";
 import { ShareGame } from "./ShareGame";
@@ -29,6 +30,10 @@ import { CopyKey } from "./CopyKey";
 const WHEEL_ZOOM_STEP = 1.15;
 const BUTTON_ZOOM_STEP = 1.4;
 const CLICK_SLOP = 4; // px of movement below which a mouseup counts as a click
+const DETAIL_GRID_THRESHOLD = 14;
+const ENTERED_KEY = "pixl.entered";
+const FIT_PADDING = 14;
+const FIT_BOTTOM_GUTTER = 86;
 
 type Tex = {
   canvas: HTMLCanvasElement;
@@ -65,6 +70,37 @@ function writePixel(
   img.data[o + 3] = a;
 }
 
+function fitCanvasCamera(
+  viewport: { width: number; height: number },
+  canvas: { width: number; height: number }
+) {
+  const left = FIT_PADDING;
+  const right = FIT_PADDING;
+  const top = FIT_PADDING;
+  const bottom = viewport.width <= 880 ? FIT_PADDING : FIT_BOTTOM_GUTTER;
+  const innerWidth = Math.max(1, viewport.width - left - right);
+  const innerHeight = Math.max(1, viewport.height - top - bottom);
+  const scale = Math.max(
+    MIN_SCALE,
+    Math.min(innerWidth / canvas.width, innerHeight / canvas.height)
+  );
+  return {
+    scale,
+    offsetX: left + (innerWidth - canvas.width * scale) / 2,
+    offsetY: top + (innerHeight - canvas.height * scale) / 2,
+  };
+}
+
+function resolveViewport(
+  fallback: { width: number; height: number },
+  element: HTMLDivElement | null
+) {
+  if (!element) return fallback;
+  const width = element.clientWidth || fallback.width;
+  const height = element.clientHeight || fallback.height;
+  return { width, height };
+}
+
 export function PixlCanvas({
   seasonAddress,
   wallet = null,
@@ -97,6 +133,8 @@ export function PixlCanvas({
     drainDirty,
     colorAt,
     energy,
+    maxEnergy,
+    energyState,
     recentTxs,
   } = usePainting({ erProgram, data, wallet, seasonAddress, session });
 
@@ -106,15 +144,33 @@ export function PixlCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const texRef = useRef<Tex | null>(null);
   const cameraRef = useRef<Camera>({ scale: 1, offsetX: 0, offsetY: 0 });
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; pointerId: number } | null>(
+    null
+  );
   const movedRef = useRef(false);
   const fittedRef = useRef(false);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [zoomLabel, setZoomLabel] = useState(1);
+  const [energyAlertTick, setEnergyAlertTick] = useState(0);
 
   const paintable =
     !readOnly && Boolean(erProgram && session && data && !data.frozen);
+
+  function goHome() {
+    try {
+      window.sessionStorage.removeItem(ENTERED_KEY);
+    } catch {
+      /* sessionStorage may be unavailable; navigation still works */
+    }
+    window.location.href = "/";
+  }
+
+  useEffect(() => {
+    if (!paintError) return;
+    if (!/energy|recharge/i.test(paintError)) return;
+    setEnergyAlertTick((tick) => tick + 1);
+  }, [paintError]);
 
   // Track the container size so the canvas is crisp on resize / DPR changes.
   useLayoutEffect(() => {
@@ -158,8 +214,9 @@ export function PixlCanvas({
   }, [viewport.width, viewport.height]);
 
   function maybeFitAndDraw() {
-    if (data && viewport.width > 0 && !fittedRef.current) {
-      cameraRef.current = fitCamera(viewport, data);
+    const nextViewport = resolveViewport(viewport, wrapRef.current);
+    if (data && nextViewport.width > 0 && !fittedRef.current) {
+      cameraRef.current = clampOffset(fitCanvasCamera(nextViewport, data), nextViewport, data);
       setZoomLabel(cameraRef.current.scale);
       fittedRef.current = true;
     }
@@ -182,7 +239,7 @@ export function PixlCanvas({
     const { scale, offsetX, offsetY } = cameraRef.current;
     const w = data.width * scale;
     const h = data.height * scale;
-    ctx.fillStyle = "#00000055";
+    ctx.fillStyle = "#d8dadd";
     ctx.fillRect(offsetX, offsetY, w, h);
     ctx.drawImage(
       tex.canvas,
@@ -196,8 +253,8 @@ export function PixlCanvas({
       h
     );
 
-    if (shouldShowGrid(scale)) {
-      ctx.strokeStyle = "#ffffff14";
+    if (shouldShowGrid(scale, DETAIL_GRID_THRESHOLD)) {
+      ctx.strokeStyle = "#ffffff10";
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = 0; x <= data.width; x++) {
@@ -218,7 +275,11 @@ export function PixlCanvas({
 
   function applyCamera(next: Camera) {
     if (!data) return;
-    cameraRef.current = clampOffset(next, viewport, data);
+    cameraRef.current = clampOffset(
+      next,
+      resolveViewport(viewport, wrapRef.current),
+      data
+    );
     setZoomLabel(cameraRef.current.scale);
     draw();
   }
@@ -245,28 +306,38 @@ export function PixlCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, viewport.width, viewport.height]);
 
-  function onMouseDown(e: React.MouseEvent) {
-    dragRef.current = { x: e.clientX, y: e.clientY };
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!data) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
     movedRef.current = false;
   }
-  function onMouseMove(e: React.MouseEvent) {
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!data) return;
     if (dragRef.current) {
+      if (dragRef.current.pointerId !== e.pointerId) return;
       const dx = e.clientX - dragRef.current.x;
       const dy = e.clientY - dragRef.current.y;
       if (Math.abs(dx) > CLICK_SLOP || Math.abs(dy) > CLICK_SLOP)
         movedRef.current = true;
-      dragRef.current = { x: e.clientX, y: e.clientY };
+      dragRef.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
       applyCamera(panBy(cameraRef.current, dx, dy));
     }
     const { x, y } = localPoint(e);
     setHover(screenToCell(cameraRef.current, x, y, data));
   }
-  function onMouseUp(e: React.MouseEvent) {
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     const wasDragging = dragRef.current !== null;
     const moved = movedRef.current;
+    if (dragRef.current && dragRef.current.pointerId !== e.pointerId) return;
     dragRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     if (!data || !wasDragging || moved || !paintable) return;
+    if (energy !== null && energy <= 0) {
+      setEnergyAlertTick((tick) => tick + 1);
+    }
     const { x, y } = localPoint(e);
     const cell = screenToCell(cameraRef.current, x, y, data);
     if (cell) void paint(cell.x, cell.y);
@@ -281,7 +352,16 @@ export function PixlCanvas({
     );
   }
   function resetView() {
-    if (data) applyCamera(fitCamera(viewport, data));
+    if (!data) return;
+    const nextViewport = resolveViewport(viewport, wrapRef.current);
+    cameraRef.current = clampOffset(
+      fitCanvasCamera(nextViewport, data),
+      nextViewport,
+      data
+    );
+    fittedRef.current = true;
+    setZoomLabel(cameraRef.current.scale);
+    draw();
   }
 
   // Only show the blocking error screen when there's no cached snapshot to keep up.
@@ -302,48 +382,59 @@ export function PixlCanvas({
     <div
       ref={wrapRef}
       className="canvas-viewport"
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={() => {
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        endDrag();
+        setHover(null);
+      }}
+      onPointerLeave={() => {
         endDrag();
         setHover(null);
       }}
     >
       <canvas ref={canvasRef} className="canvas-surface" />
-      {paintable && hover && data && (() => {
-        const { scale, offsetX, offsetY } = cameraRef.current;
-        const size = Math.max(1, scale);
-        const swatch = data.palette[selectedColor];
-        const rgba = swatch != null ? u32ToRgba(swatch) : null;
-        const out = energy === 0;
-        return (
-          <div
-            className="paint-cursor"
-            data-empty={out || undefined}
-            style={{
-              left: Math.round(offsetX + hover.x * scale),
-              top: Math.round(offsetY + hover.y * scale),
-              width: size,
-              height: size,
-              background: rgba
-                ? `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a / 255})`
-                : undefined,
-            }}
-          />
-        );
-      })()}
+      {paintable &&
+        hover &&
+        data &&
+        (() => {
+          const { scale, offsetX, offsetY } = cameraRef.current;
+          const size = Math.max(1, scale);
+          const swatch = data.palette[selectedColor];
+          const rgba = swatch != null ? u32ToRgba(swatch) : null;
+          const out = energy === 0;
+          return (
+            <div
+              className="paint-cursor"
+              data-empty={out || undefined}
+              style={{
+                left: Math.round(offsetX + hover.x * scale),
+                top: Math.round(offsetY + hover.y * scale),
+                width: size,
+                height: size,
+                background: rgba
+                  ? `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a / 255})`
+                  : undefined,
+              }}
+            >
+              {energy !== null && maxEnergy !== null && (
+                <span className="paint-cursor__energy">
+                  <span className="paint-cursor__bolt" aria-hidden>
+                    ⚡
+                  </span>
+                  {energy}/{maxEnergy}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       {loading && <span className="canvas-badge">syncing…</span>}
     </div>
   );
 
   const zoomTools = (
-    <div className="stage-tools">
-      <span className="canvas-coord">
-        {hover ? `${hover.x}, ${hover.y}` : "—"}
-      </span>
-      {data && <span className="canvas-dims">{data.width}×{data.height}</span>}
-      {data?.frozen && <span className="canvas-flag">frozen</span>}
+    <div className="stage-tools stage-tools--overlay">
       <span className="stage-tools__zoom">
         <button
           className="canvas-btn"
@@ -362,7 +453,11 @@ export function PixlCanvas({
         >
           +
         </button>
-        <button className="canvas-btn" title="Fit to screen" onClick={resetView}>
+        <button
+          className="canvas-btn"
+          title="Fit to screen"
+          onClick={resetView}
+        >
           Fit
         </button>
       </span>
@@ -409,151 +504,179 @@ export function PixlCanvas({
   // it, pxls-style. Bold move goes to the canvas — the chrome stays quiet.
   return (
     <div className="pixl-stage">
-      {canvasBoard}
-
-      <header className="stage-bar stage-bar--top">
-        <div className="stage-brand">
-          <span className="stage-brand__mark">Pixl</span>
-          {data && (
-            <span className="stage-brand__season">
-              <span className="stage-brand__id">#{data.seasonId}</span>
-              <span className="stage-brand__title" title={data.title}>
-                {data.title || "Untitled season"}
-              </span>
-              {seasonAddress && (
-                <CopyKey
-                  value={seasonAddress.toBase58()}
-                  label="Season address"
-                />
-              )}
-            </span>
-          )}
-        </div>
-        <div className="stage-actions">
-          {shareable && <ShareGame className="canvas-btn" />}
-          {chrome}
-        </div>
-      </header>
-
-      <div className="stage-hud">
-        {wallet && (
-          <details className="hud-panel">
-            <summary className="hud-panel__summary">
-              <span className="hud-panel__label">Community</span>
-              {contribution && (
-                <span className="hud-panel__meta">
-                  {contribution.rank !== null ? `#${contribution.rank}` : "—"}
-                  <span className="hud-panel__meta-accent">
-                    {formatPercent(
-                      computeContributionPct(
-                        contribution.yourPixels,
-                        contribution.communityPixels
-                      )
-                    )}
-                  </span>
+      <div className="stage-shell">
+        <header className="stage-bar stage-bar--top">
+          <div className="stage-brand">
+            <div className="stage-brand__block">
+              <span className="stage-brand__eyebrow">Collaborative canvas</span>
+              <button
+                type="button"
+                className="stage-brand__mark"
+                aria-label="Go home"
+                onClick={goHome}
+              >
+                Pixl
+              </button>
+            </div>
+            {data && (
+              <span className="stage-brand__season">
+                <span className="stage-brand__id">Season #{data.seasonId}</span>
+                <span className="stage-brand__title" title={data.title}>
+                  {data.title || "Untitled season"}
                 </span>
+                {seasonAddress && (
+                  <CopyKey
+                    value={seasonAddress.toBase58()}
+                    label="Season address"
+                  />
+                )}
+              </span>
+            )}
+          </div>
+          <div className="stage-actions">
+            {shareable && <ShareGame className="canvas-btn canvas-btn--primary" />}
+            {chrome}
+          </div>
+        </header>
+
+        <div className="stage-layout">
+          <section className="stage-canvas-panel">
+            <div className="stage-canvas-panel__frame">
+              {canvasBoard}
+              {zoomTools}
+            </div>
+            <div className="stage-canvas-panel__footer">
+              {data && (
+                <div className="stage-dock">
+                  <PalettePicker
+                    palette={data.palette}
+                    selected={selectedColor}
+                    onSelect={setSelectedColor}
+                    disabled={!paintable}
+                  />
+                </div>
               )}
-              <span className="hud-panel__chevron" aria-hidden />
-            </summary>
-            <CommunityCard
-              contribution={contribution}
-              season={data?.season ?? null}
-            />
-          </details>
-        )}
+            </div>
+          </section>
 
-        <details className="hud-panel">
-          <summary className="hud-panel__summary">
-            <span className="hud-panel__label">Activity</span>
-            <span className="hud-panel__chevron" aria-hidden />
-          </summary>
-          {recentTxs.length === 0 ? (
-            <p className="tx-feed__empty">
-              Paint a pixel — signatures land here as they confirm on the rollup.
-            </p>
-          ) : (
-            <ul className="tx-feed__list">
-              {recentTxs.map((tx) => {
-                const swatch = data?.palette[tx.colorIndex];
-                const rgba = swatch != null ? u32ToRgba(swatch) : null;
-                return (
-                  <li
-                    className="tx-row"
-                    data-status={tx.status}
-                    data-mine={tx.mine}
-                    key={tx.id}
-                  >
-                    <span
-                      className="tx-row__swatch"
-                      style={
-                        rgba
-                          ? {
-                              background: `rgba(${rgba.r},${rgba.g},${rgba.b},${
-                                rgba.a / 255
-                              })`,
-                            }
-                          : undefined
-                      }
-                      aria-hidden
-                    />
-                    <span className="tx-row__coord">
-                      x{tx.x} y{tx.y}
-                    </span>
-                    <span className="tx-row__painter" title={tx.painter}>
-                      {tx.mine
-                        ? "you"
-                        : tx.painter
-                        ? `${tx.painter.slice(0, 4)}…${tx.painter.slice(-4)}`
-                        : "—"}
-                    </span>
-                    <span className="tx-row__status">
-                      {tx.status === "pending"
-                        ? "sending…"
-                        : tx.status === "confirmed"
-                        ? "confirmed"
-                        : "failed"}
-                    </span>
-                    {tx.signature ? (
-                      <a
-                        className="tx-row__link"
-                        href={erExplorerTxUrl(tx.signature)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`Verify ${tx.signature} on Explorer`}
-                        aria-label="Verify on Explorer"
-                      >
-                        ↗
-                      </a>
-                    ) : (
-                      <span
-                        className="tx-row__link tx-row__link--muted"
-                        aria-hidden
-                      >
-                        ·
+          <aside className="stage-hud">
+            {paintable && (
+              <PaintEnergyHud
+                energy={energyState}
+                session={session}
+                alertTick={energyAlertTick}
+                error={paintError}
+                hover={hover}
+                canvas={data ? { width: data.width, height: data.height, frozen: data.frozen } : null}
+              />
+            )}
+
+            {wallet && (
+              <details className="hud-panel" open>
+                <summary className="hud-panel__summary">
+                  <span className="hud-panel__label">Community</span>
+                  {contribution && (
+                    <span className="hud-panel__meta">
+                      {contribution.rank !== null ? `#${contribution.rank}` : "—"}
+                      <span className="hud-panel__meta-accent">
+                        {formatPercent(
+                          computeContributionPct(
+                            contribution.yourPixels,
+                            contribution.communityPixels
+                          )
+                        )}
                       </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </details>
-      </div>
+                    </span>
+                  )}
+                  <span className="hud-panel__chevron" aria-hidden />
+                </summary>
+                <CommunityCard
+                  contribution={contribution}
+                  season={data?.season ?? null}
+                />
+              </details>
+            )}
 
-      {data && (
-        <div className="stage-dock">
-          <PalettePicker
-            palette={data.palette}
-            selected={selectedColor}
-            onSelect={setSelectedColor}
-            disabled={!paintable}
-          />
+            <details className="hud-panel">
+              <summary className="hud-panel__summary">
+                <span className="hud-panel__label">Activity</span>
+                <span className="hud-panel__chevron" aria-hidden />
+              </summary>
+              {recentTxs.length === 0 ? (
+                <p className="tx-feed__empty">
+                  Paint a pixel — signatures land here as they confirm on the
+                  rollup.
+                </p>
+              ) : (
+                <ul className="tx-feed__list">
+                  {recentTxs.map((tx) => {
+                    const swatch = data?.palette[tx.colorIndex];
+                    const rgba = swatch != null ? u32ToRgba(swatch) : null;
+                    return (
+                      <li
+                        className="tx-row"
+                        data-status={tx.status}
+                        data-mine={tx.mine}
+                        key={tx.id}
+                      >
+                        <span
+                          className="tx-row__swatch"
+                          style={
+                            rgba
+                              ? {
+                                  background: `rgba(${rgba.r},${rgba.g},${rgba.b},${
+                                    rgba.a / 255
+                                  })`,
+                                }
+                              : undefined
+                          }
+                          aria-hidden
+                        />
+                        <span className="tx-row__coord">
+                          x{tx.x} y{tx.y}
+                        </span>
+                        <span className="tx-row__painter" title={tx.painter}>
+                          {tx.mine
+                            ? "you"
+                            : tx.painter
+                            ? `${tx.painter.slice(0, 4)}…${tx.painter.slice(-4)}`
+                            : "—"}
+                        </span>
+                        <span className="tx-row__status">
+                          {tx.status === "pending"
+                            ? "sending…"
+                            : tx.status === "confirmed"
+                            ? "confirmed"
+                            : "failed"}
+                        </span>
+                        {tx.signature ? (
+                          <a
+                            className="tx-row__link"
+                            href={erExplorerTxUrl(tx.signature)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Verify ${tx.signature} on Explorer`}
+                            aria-label="Verify on Explorer"
+                          >
+                            ↗
+                          </a>
+                        ) : (
+                          <span
+                            className="tx-row__link tx-row__link--muted"
+                            aria-hidden
+                          >
+                            ·
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </details>
+          </aside>
         </div>
-      )}
-
-      {zoomTools}
-
-      {paintError && <p className="canvas-error stage-error">{paintError}</p>}
+      </div>
     </div>
   );
 }

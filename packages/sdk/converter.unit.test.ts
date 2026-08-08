@@ -3,9 +3,9 @@ import { expect } from "chai";
 import {
   convertImageToArtwork,
   deriveHeight,
+  TRANSPARENT_INDEX,
   type SourceImage,
 } from "./converter";
-import { TRANSPARENT_INDEX, validateArtwork } from "./blueprint";
 
 // Palette: 0=black, 1=white, 2=red. Packed 0xRRGGBBAA.
 const PALETTE = [0x000000ff, 0xffffffff, 0xff0000ff];
@@ -106,6 +106,39 @@ describe("convertImageToArtwork", () => {
     expect(artwork.pixels.every((p) => p === 1)).to.equal(true); // white
   });
 
+  it("weights edge color by alpha instead of blending toward transparent black", () => {
+    // 2x1: an opaque red pixel beside a fully transparent one. Downsampled to a
+    // single cell, alpha-weighted color must stay red (not muddy toward black).
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data.set([255, 0, 0, 255], 0); // opaque red
+    data.set([0, 0, 0, 0], 4); // transparent
+    const src: SourceImage = { width: 2, height: 1, data };
+    const { artwork } = convertImageToArtwork(src, {
+      ...base,
+      targetWidth: 1,
+      targetHeight: 1,
+      alphaThreshold: 1,
+    });
+    expect(artwork.pixels[0]).to.equal(2); // red, not black(0)
+  });
+
+  it("monochrome snaps every visible cell to one palette color", () => {
+    // Red + white pixels; monochrome collapses both to the dominant ink match.
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data.set([255, 0, 0, 255], 0);
+    data.set([255, 255, 255, 255], 4);
+    const src: SourceImage = { width: 2, height: 1, data };
+    const { artwork } = convertImageToArtwork(src, {
+      ...base,
+      targetWidth: 2,
+      targetHeight: 1,
+      monochrome: true,
+    });
+    const visible = artwork.pixels.filter((p) => p !== TRANSPARENT_INDEX);
+    expect(visible.length).to.be.greaterThan(0);
+    expect(new Set(visible).size).to.equal(1); // exactly one color used
+  });
+
   it("clamps oversized target and origin to canvas bounds and validates", () => {
     const { artwork } = convertImageToArtwork(solid(8, 8, 255, 0, 0), {
       ...base,
@@ -117,6 +150,12 @@ describe("convertImageToArtwork", () => {
     });
     expect(artwork.x + artwork.width).to.be.at.most(10);
     expect(artwork.y + artwork.height).to.be.at.most(10);
-    validateArtwork(artwork, 10, 10, PALETTE.length); // throws if invalid
+    expect(artwork.transparentIndex).to.equal(TRANSPARENT_INDEX);
+    expect(artwork.pixels).to.have.length(artwork.width * artwork.height);
+    expect(
+      artwork.pixels.every(
+        (p) => p === TRANSPARENT_INDEX || (p >= 0 && p < PALETTE.length)
+      )
+    ).to.equal(true);
   });
 });

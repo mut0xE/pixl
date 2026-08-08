@@ -103,7 +103,7 @@ pub fn handle_paint_pixel(ctx: Context<PaintPixel>, x: u16, y: u16, color_index:
         .ok_or(error!(PixlError::InvalidCoordinate))?;
     require!(
         old_color_index != color_index,
-        PixlError::InvalidAccountState
+        PixlError::SameColor
     );
 
     canvas.pixels[index] = color_index;

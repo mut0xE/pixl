@@ -125,6 +125,15 @@ export function rankOfPlayer(
   return i === -1 ? null : i + 1;
 }
 
+/** Sort contributors: pixels desc, then player base58 asc (deterministic). */
+export function sortContributors(rows: SeasonContributor[]): SeasonContributor[] {
+  return [...rows].sort(
+    (a, b) =>
+      b.pixelsPainted - a.pixelsPainted ||
+      (a.player < b.player ? -1 : a.player > b.player ? 1 : 0)
+  );
+}
+
 /** Fetch and classify every Season account the program owns, display-sorted. */
 export async function fetchAllSeasons(
   program: PixlProgram,
@@ -206,7 +215,7 @@ export async function fetchSeasonContributors(
   const rows = await program.account.seasonProfile.all([
     { memcmp: { offset: 8, bytes: season.toBase58() } },
   ]);
-  return rows
+  const mapped = rows
     .map((r) => ({
       player: (r.account as any).player.toBase58(),
       pixelsPainted: Number((r.account as any).pixelsPainted),
@@ -214,6 +223,6 @@ export async function fetchSeasonContributors(
     }))
     // `joined_at == 0` = created on L1 but not yet joined via the ER; those
     // aren't counted in participant_count, so exclude them from the roster too.
-    .filter((c) => c.joinedAt > 0)
-    .sort((a, b) => b.pixelsPainted - a.pixelsPainted);
+    .filter((c) => c.joinedAt > 0);
+  return sortContributors(mapped);
 }

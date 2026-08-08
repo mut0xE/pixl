@@ -4,7 +4,14 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { WalletControl } from "./WalletControl";
 
-const PIXELS = ["#ff5f2e", "#f2c14e", "#6fd28a", "#4a90d9", "#eae6da", "#9c3c1e"];
+const PIXELS = [
+  "#d96a3a",
+  "#d7bc62",
+  "#79c98f",
+  "#6c8fe5",
+  "#e7dfd2",
+  "#8f5a3c",
+];
 const GRID = 16;
 
 // Deterministic hash in [0,1) so server and client render the same grid.
@@ -46,6 +53,14 @@ function SelfPaintingCanvas() {
   const cells = useMemo(buildCanvas, []);
   return (
     <div className="landing-canvas" aria-hidden>
+      <div className="landing-canvas__header">
+        <span className="landing-canvas__label">Preview board</span>
+        <span className="landing-canvas__mini-pixels">
+          <span />
+          <span />
+          <span />
+        </span>
+      </div>
       <div className="landing-canvas__grid">
         {cells.map((c, i) => (
           <span
@@ -63,7 +78,6 @@ function SelfPaintingCanvas() {
           />
         ))}
       </div>
-      <span className="landing-canvas__tag">season · live</span>
     </div>
   );
 }
@@ -93,50 +107,60 @@ function EnterCta({ onEnter }: { onEnter: () => void }) {
 export function LandingPage({ onEnter }: { onEnter: () => void }) {
   return (
     <main className="landing">
-      <header className="landing__header">
-        <span className="landing__wordmark">Pixl</span>
-        <div className="landing__header-actions">
-          <WalletControl />
-        </div>
-      </header>
-
-      <section className="landing-hero">
-        <div className="landing-hero__copy">
-          <p className="landing-eyebrow reveal" style={{ animationDelay: "60ms" }}>
-            A collaborative pixel canvas on Solana
-          </p>
-          <h1
-            className="landing-hero__title reveal"
-            style={{ animationDelay: "140ms" }}
-          >
-            Paint one pixel.
-            <br />
-            Leave a <span className="landing-hero__mark">permanent</span> mark.
-          </h1>
-          <p
-            className="landing-hero__sub reveal"
-            style={{ animationDelay: "220ms" }}
-          >
-            Pixl is a shared on-chain canvas. Players paint pixel by pixel across
-            timed seasons — and when a season ends, the artwork is settled to
-            Solana forever.
-          </p>
-          <div
-            className="landing-hero__cta reveal"
-            style={{ animationDelay: "300ms" }}
-          >
-            <EnterCta onEnter={onEnter} />
+      <div className="landing__frame">
+        <header className="landing__header">
+          <span className="landing__wordmark">Pixl</span>
+          <div className="landing__header-actions">
+            <WalletControl />
           </div>
-        </div>
-        <div className="reveal" style={{ animationDelay: "180ms" }}>
-          <SelfPaintingCanvas />
-        </div>
-      </section>
+        </header>
 
-      <footer className="landing__footer">
-        <span>Pixl</span>
-        <span>Built on MagicBlock ephemeral rollups · Solana devnet</span>
-      </footer>
+        <section className="landing-hero">
+          <div className="landing-hero__copy">
+            <p
+              className="landing-eyebrow reveal"
+              style={{ animationDelay: "60ms" }}
+            >
+              Pixel canvas on Solana
+            </p>
+            <h1
+              className="landing-hero__title reveal"
+              style={{ animationDelay: "140ms" }}
+            >
+              Paint one pixel.
+              <br />
+              Leave a
+              <br />
+              <span className="landing-hero__mark">permanent</span> mark.
+            </h1>
+            <p
+              className="landing-hero__sub reveal"
+              style={{ animationDelay: "220ms" }}
+            >
+              Pixl is a shared on-chain canvas. Players paint pixel by pixel
+              across timed seasons — and when a season ends, the artwork is
+              settled to Solana forever.
+            </p>
+            <div
+              className="landing-hero__cta reveal"
+              style={{ animationDelay: "260ms" }}
+            >
+              <EnterCta onEnter={onEnter} />
+            </div>
+          </div>
+
+          <div className="landing-hero__art reveal" style={{ animationDelay: "180ms" }}>
+            <SelfPaintingCanvas />
+          </div>
+        </section>
+
+        <footer className="landing__footer">
+          <span className="landing__footer-pill">Pixl</span>
+          <span className="landing__footer-tagline">
+            Built on MagicBlock ephemeral rollups · Solana devnet
+          </span>
+        </footer>
+      </div>
     </main>
   );
 }
