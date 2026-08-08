@@ -3782,7 +3782,8 @@ a:focus-visible {
 
 .landing-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
+  grid-template-columns: minmax(0, 620px) minmax(300px, 0.92fr);
+  justify-content: space-between;
   gap: 56px;
   align-items: center;
   padding: 36px 0;

@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/pixl.json`.
  */
 export type Pixl = {
-  "address": "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ",
+  "address": "BYH38xZxN4akDTh4kpj1ntMUPLU5LRJ1wP9rzmaUFwFw",
   "metadata": {
     "name": "pixl",
     "version": "0.1.0",
@@ -284,38 +284,38 @@ export type Pixl = {
             "program": {
               "kind": "const",
               "value": [
-                135,
-                110,
-                78,
-                249,
-                200,
-                227,
-                130,
-                133,
-                78,
-                131,
-                157,
-                192,
-                234,
-                118,
-                45,
-                127,
-                146,
-                112,
-                206,
-                163,
+                156,
+                152,
+                1,
+                220,
+                66,
+                195,
+                29,
+                187,
+                66,
+                162,
+                168,
+                111,
+                63,
+                214,
+                183,
+                20,
+                198,
+                144,
+                138,
+                26,
+                104,
+                246,
+                102,
+                128,
+                61,
+                60,
+                226,
                 129,
-                0,
-                208,
-                224,
-                151,
-                197,
-                164,
-                110,
-                145,
-                71,
-                254,
-                203
+                40,
+                227,
+                115,
+                250
               ]
             }
           }
@@ -407,7 +407,7 @@ export type Pixl = {
         },
         {
           "name": "ownerProgram",
-          "address": "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ"
+          "address": "BYH38xZxN4akDTh4kpj1ntMUPLU5LRJ1wP9rzmaUFwFw"
         },
         {
           "name": "delegationProgram",
@@ -471,38 +471,38 @@ export type Pixl = {
             "program": {
               "kind": "const",
               "value": [
-                135,
-                110,
-                78,
-                249,
-                200,
-                227,
-                130,
-                133,
-                78,
-                131,
-                157,
-                192,
-                234,
-                118,
-                45,
-                127,
-                146,
-                112,
-                206,
-                163,
+                156,
+                152,
+                1,
+                220,
+                66,
+                195,
+                29,
+                187,
+                66,
+                162,
+                168,
+                111,
+                63,
+                214,
+                183,
+                20,
+                198,
+                144,
+                138,
+                26,
+                104,
+                246,
+                102,
+                128,
+                61,
+                60,
+                226,
                 129,
-                0,
-                208,
-                224,
-                151,
-                197,
-                164,
-                110,
-                145,
-                71,
-                254,
-                203
+                40,
+                227,
+                115,
+                250
               ]
             }
           }
@@ -595,7 +595,7 @@ export type Pixl = {
         },
         {
           "name": "ownerProgram",
-          "address": "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ"
+          "address": "BYH38xZxN4akDTh4kpj1ntMUPLU5LRJ1wP9rzmaUFwFw"
         },
         {
           "name": "delegationProgram",
@@ -779,7 +779,7 @@ export type Pixl = {
         },
         {
           "name": "thisProgram",
-          "address": "A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ"
+          "address": "BYH38xZxN4akDTh4kpj1ntMUPLU5LRJ1wP9rzmaUFwFw"
         },
         {
           "name": "programData"
@@ -1747,26 +1747,31 @@ export type Pixl = {
     },
     {
       "code": 6020,
+      "name": "sameColor",
+      "msg": "The pixel is already painted with that color."
+    },
+    {
+      "code": 6021,
       "name": "wrongGame",
       "msg": "The provided game account does not match the expected game."
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "wrongSeason",
       "msg": "The provided season account does not match the expected season."
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "wrongCanvas",
       "msg": "The provided canvas account does not match the expected canvas."
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "mathOverflow",
       "msg": "Arithmetic overflow occurred."
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "invalidAccountState",
       "msg": "The account state is invalid for this operation."
     }

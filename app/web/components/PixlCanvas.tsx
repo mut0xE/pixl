@@ -30,7 +30,7 @@ import { CopyKey } from "./CopyKey";
 const WHEEL_ZOOM_STEP = 1.15;
 const BUTTON_ZOOM_STEP = 1.4;
 const CLICK_SLOP = 4; // px of movement below which a mouseup counts as a click
-const DETAIL_GRID_THRESHOLD = 14;
+const DETAIL_GRID_THRESHOLD = 4;
 const ENTERED_KEY = "pixl.entered";
 const FIT_PADDING = 14;
 const FIT_BOTTOM_GUTTER = 86;
@@ -253,19 +253,21 @@ export function PixlCanvas({
       h
     );
 
+    // Only outline untouched cells — once a pixel is painted its border
+    // disappears so painted art reads as a solid image, pxls.space-style.
     if (shouldShowGrid(scale, DETAIL_GRID_THRESHOLD)) {
-      ctx.strokeStyle = "#ffffff10";
+      ctx.strokeStyle = "#00000014";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let x = 0; x <= data.width; x++) {
-        const px = Math.round(offsetX + x * scale) + 0.5;
-        ctx.moveTo(px, offsetY);
-        ctx.lineTo(px, offsetY + h);
-      }
-      for (let y = 0; y <= data.height; y++) {
-        const py = Math.round(offsetY + y * scale) + 0.5;
-        ctx.moveTo(offsetX, py);
-        ctx.lineTo(offsetX + w, py);
+      for (let y = 0; y < data.height; y++) {
+        for (let x = 0; x < data.width; x++) {
+          if (colorAt(y * data.width + x) !== 0) continue; // painted: skip border
+          const px = Math.round(offsetX + x * scale) + 0.5;
+          const py = Math.round(offsetY + y * scale) + 0.5;
+          const cw = Math.round(offsetX + (x + 1) * scale) - Math.round(offsetX + x * scale);
+          const ch = Math.round(offsetY + (y + 1) * scale) - Math.round(offsetY + y * scale);
+          ctx.rect(px, py, cw, ch);
+        }
       }
       ctx.stroke();
     }

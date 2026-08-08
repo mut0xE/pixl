@@ -265,6 +265,25 @@ export function usePainting({
             if (ev.name !== "PixelPainted") continue;
             if (ev.data.season.toBase58() !== seasonB58) continue;
             addPaint(s.signature, ev.data);
+            // Belt-and-suspenders: the ER `onAccountChange` subscription above
+            // doesn't reliably fire on some RPCs, which would leave the canvas
+            // stuck on the initial snapshot even as paints keep confirming here.
+            // Patch authoritative state directly from the decoded event too.
+            const width = data.width;
+            const idx = ev.data.y * width + ev.data.x;
+            const auth = authoritativeRef.current;
+            if (auth[idx] !== ev.data.newColorIndex) {
+              auth[idx] = ev.data.newColorIndex;
+              const pending = pendingRef.current.get(idx);
+              if (pending) {
+                if (pending.color === ev.data.newColorIndex)
+                  pendingRef.current.delete(idx);
+                else pending.prevColor = ev.data.newColorIndex;
+              } else {
+                dirtyRef.current.add(idx);
+              }
+              bump();
+            }
           }
         }
       } catch {

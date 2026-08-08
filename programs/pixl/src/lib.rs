@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::ephemeral;
 
-declare_id!("A7fbbwXrM1zSUbqEBzF7MvXKaNGqnZjpNVBAA8Fb6GyQ");
+declare_id!("BYH38xZxN4akDTh4kpj1ntMUPLU5LRJ1wP9rzmaUFwFw");
 mod constants;
 mod enums;
 mod errors;

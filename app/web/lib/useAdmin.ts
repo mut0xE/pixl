@@ -12,6 +12,8 @@ export type AdminState = {
   currentSeason: PublicKey | null;
   /** True only when a wallet is connected AND equals game.authority. */
   isAuthority: boolean;
+  /** True once we know the Game PDA hasn't been created yet (init_game never ran). */
+  gameMissing: boolean;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -26,20 +28,27 @@ export function useAdmin(): AdminState {
   const [currentSeason, setCurrentSeason] = useState<PublicKey | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gameMissing, setGameMissing] = useState(false);
 
   const refetch = useCallback(async () => {
     if (!program) return;
     setLoading(true);
     setError(null);
+    setGameMissing(false);
+    const [gamePda] = deriveGamePda(program.programId);
+    setGame(gamePda);
     try {
-      const [gamePda] = deriveGamePda(program.programId);
       const acct: any = await fetchGame(program, gamePda);
-      setGame(gamePda);
       setAuthority(acct.authority as PublicKey);
       setCurrentSeason(acct.currentSeason as PublicKey);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
       setAuthority(null);
+      if (message.includes("Account does not exist")) {
+        setGameMissing(true);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -58,6 +67,7 @@ export function useAdmin(): AdminState {
     authority,
     currentSeason,
     isAuthority,
+    gameMissing,
     loading,
     error,
     refetch,

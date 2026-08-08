@@ -6,6 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useAdmin } from "../../lib/useAdmin";
 import { WalletControl } from "../WalletControl";
 import { HomeButton } from "../HomeButton";
+import { InitGamePanel } from "./InitGamePanel";
 
 type BackLink = { href: string; label: string };
 
@@ -23,7 +24,8 @@ export function AdminShell({
   children: (ctx: AdminContext) => ReactNode;
 }) {
   const { connected } = useWallet();
-  const { game, authority, isAuthority, loading, error } = useAdmin();
+  const { game, authority, isAuthority, gameMissing, loading, error, refetch } =
+    useAdmin();
 
   let body: ReactNode;
   if (!connected) {
@@ -33,8 +35,10 @@ export function AdminShell({
         note="Connect the game authority wallet to manage seasons."
       />
     );
-  } else if (loading && !authority) {
+  } else if (loading && !authority && !gameMissing) {
     body = <SkeletonCard />;
+  } else if (gameMissing && game) {
+    body = <InitGamePanel game={game} onDone={refetch} />;
   } else if (error) {
     body = <Gate heading="Couldn’t load game" note={error} tone="err" />;
   } else if (!isAuthority || !game) {

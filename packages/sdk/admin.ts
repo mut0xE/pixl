@@ -191,6 +191,36 @@ export function buildDelegateSeasonProfileIx(
   );
 }
 
+const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111"
+);
+
+export function deriveProgramDataAddress(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_PROGRAM_ID
+  )[0];
+}
+
+/**
+ * Creates the `Game` PDA. Callable once, only by the program's current
+ * upgrade authority — the on-chain gate that seeds `Game.authority`.
+ */
+export function buildInitGameIx(
+  program: PixlProgram,
+  params: { admin: PublicKey; game: PublicKey }
+): Promise<TransactionInstruction> {
+  return (program.methods as any)
+    .initGame()
+    .accounts({
+      admin: params.admin,
+      game: params.game,
+      programData: deriveProgramDataAddress(program.programId),
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+}
+
 /**
  * Creates the program-owned fee payer PDA. Callable once by the game authority.
  * Base-layer transaction.
