@@ -40,8 +40,14 @@ for the hackathon.
 | Tab | Source accounts | RPC strategy |
 |---|---|---|
 | Current Season | `SeasonProfile.all()` filtered by active season | ER-first, L1 fallback (`fetchSeasonContributorsWithFallback`) |
-| Lifetime | `Player.all()` → `lifetime_pixels` | L1 |
-| Past Seasons | selected ended season → its `SeasonProfile.all()` | L1 |
+| Lifetime | `Player.all()` → `lifetime_pixels` | ER-first, L1 fallback |
+| Past Seasons | selected ended season → its `SeasonProfile.all()` | L1 (ended = undelegated) |
+
+**Pixel totals are always read ER-first with an L1 fallback.** Player pixel counts
+(`Player.lifetime_pixels`, `SeasonProfile.pixels_painted`) live on the ER while delegated, so
+every totals read tries the ER clone first and falls back to L1 when the ER returns nothing
+(unreachable, or account not delegated — e.g. ended seasons). This applies to the list reads
+and the connected user's own row alike.
 
 **Live-data caveat (accepted):** the Ephemeral Rollup does not serve `getProgramAccounts`
 for delegated clones, so the Current Season *list* reads committed L1 counts and can lag live
@@ -52,6 +58,9 @@ direct PDA fetch (ER-first), matching the existing `useContribution` pattern.
 
 - `fetchLifetimeLeaders(program)` → `Player.all()`, mapped to `{ wallet, lifetimePixels }`,
   sorted `lifetimePixels` desc then wallet base58 asc.
+- `fetchLifetimeLeadersWithFallback(erProgram, l1Program)` — ER-first, L1 fallback wrapper
+  (mirrors `fetchSeasonContributorsWithFallback`): try the ER clone, fall back to L1 when it
+  returns no rows.
 - **Wallet resolution:** `SeasonProfile.player` holds the *Player PDA*, not the wallet.
   Fetch `Player.all()` once, build a `Map<playerPda, wallet>`, and resolve every per-season
   row to a wallet pubkey. Lifetime rows carry `wallet` directly.
