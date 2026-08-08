@@ -13,7 +13,7 @@ import {
   type PlayerEnergy,
   type SessionMeta,
 } from "../../../packages/sdk";
-import pixlIdl from "../../../target/idl/pixl.json";
+import pixlIdl from "../../../packages/sdk/idl/pixl.json";
 import { getErConnection } from "./er";
 import { useToast } from "../components/Toast";
 import type { CanvasData } from "./useCanvasData";

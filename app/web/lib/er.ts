@@ -7,8 +7,8 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
-import type { Pixl } from "../../../target/types/pixl";
-import pixlIdl from "../../../target/idl/pixl.json";
+import type { Pixl } from "../../../packages/sdk/idl/pixl";
+import pixlIdl from "../../../packages/sdk/idl/pixl.json";
 
 // Minimal anchor Wallet backed by the in-memory session keypair (anchor's own
 // Node wallet pulls in `fs` and isn't browser-safe).

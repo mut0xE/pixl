@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair } from "@solana/web3.js";
-import type { Pixl } from "../../../target/types/pixl";
-import pixlIdl from "../../../target/idl/pixl.json";
+import type { Pixl } from "../../../packages/sdk/idl/pixl";
+import pixlIdl from "../../../packages/sdk/idl/pixl.json";
 
 export function usePixlProgram(): Program<Pixl> | null {
   const { connection } = useConnection();

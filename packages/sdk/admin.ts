@@ -7,7 +7,7 @@ import {
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
-import type { Pixl } from "../../target/types/pixl";
+import type { Pixl } from "./idl/pixl";
 import {
   MAX_PERMITTED_DATA_LENGTH,
   canvasAccountSpace,

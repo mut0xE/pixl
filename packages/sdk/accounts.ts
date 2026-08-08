@@ -1,6 +1,6 @@
 import type { Program } from "@coral-xyz/anchor";
 import type { PublicKey } from "@solana/web3.js";
-import type { Pixl } from "../../target/types/pixl";
+import type { Pixl } from "./idl/pixl";
 
 export type PixlProgram = Program<Pixl>;
 

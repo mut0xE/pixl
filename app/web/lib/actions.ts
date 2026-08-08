@@ -51,7 +51,7 @@ async function buildRevokeStaleSessionIx(
     sessionSigner: new PublicKey(stale.sessionSigner),
   });
 }
-import type { Pixl } from "../../../target/types/pixl";
+import type { Pixl } from "../../../packages/sdk/idl/pixl";
 import { pixlError, pixlLog } from "./debug";
 import { getErConnection } from "./er";
 import {
