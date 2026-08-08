@@ -43,14 +43,30 @@ function formatExpiry(seconds: number): string {
 export function PaintEnergyHud({
   energy,
   session,
+  variant = "card",
 }: {
   energy: PlayerEnergy | null;
   session: SessionMeta | null;
+  // "pill" is the compact single-line readout that lives in the top bar; "card"
+  // is the full stacked HUD.
+  variant?: "card" | "pill";
 }) {
   const now = Math.floor(Date.now() / 1000);
+  const pill = variant === "pill";
 
   // Stale / not-yet-loaded: the delegated Player hasn't decoded off the ER yet.
   if (!energy) {
+    if (pill) {
+      return (
+        <div className="energy-pill" data-state="syncing">
+          <span className="energy-pill__bolt" aria-hidden>
+            ⚡
+          </span>
+          <span className="energy-pill__count">—</span>
+          <span className="energy-pill__regen">syncing…</span>
+        </div>
+      );
+    }
     return (
       <div className="energy-hud" data-state="syncing">
         <div className="energy-hud__head">
@@ -85,6 +101,45 @@ export function PaintEnergyHud({
   const empty = available <= 0;
   const state = empty ? "empty" : full ? "full" : "charging";
   const session_ = sessionState(session, now);
+
+  if (pill) {
+    return (
+      <div className="energy-pill" data-state={state}>
+        <span className="energy-pill__bolt" aria-hidden>
+          ⚡
+        </span>
+        <span className="energy-pill__count">
+          {available}
+          <span className="energy-pill__max">/{max}</span>
+        </span>
+        <span className="energy-pill__regen">
+          {full
+            ? "full"
+            : countdown !== null
+            ? `+1 in ${formatCountdown(countdown)}`
+            : "—"}
+        </span>
+        <span
+          className="energy-pill__session"
+          data-session={session_.kind}
+          title={
+            session_.kind === "active"
+              ? "Session active"
+              : session_.kind === "expired"
+              ? "Session expired — reconnect to paint"
+              : "No session — connect to paint"
+          }
+        >
+          <span className="energy-pill__dot" aria-hidden />
+          {session_.kind === "active"
+            ? formatExpiry(session_.expiresIn ?? 0)
+            : session_.kind === "expired"
+            ? "expired"
+            : "no session"}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="energy-hud" data-state={state}>

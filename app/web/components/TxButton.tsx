@@ -105,21 +105,15 @@ export function TxButton({
           View transaction ↗
         </a>
       )}
-      {state === "error" && errInfo && (
-        <div className="tx-button__error">
-          <strong>{errInfo.title}</strong>
-          <span>{errInfo.detail}</span>
-          {errInfo.signature && (
-            <a
-              className="tx-button__link"
-              href={explorerUrl(errInfo.signature, errInfo.cluster)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View failed transaction ↗
-            </a>
-          )}
-        </div>
+      {state === "error" && errInfo?.signature && (
+        <a
+          className="tx-button__link"
+          href={explorerUrl(errInfo.signature, errInfo.cluster)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          View failed transaction ↗
+        </a>
       )}
     </div>
   );

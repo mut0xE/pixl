@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { PublicKey, Keypair } from "@solana/web3.js";
 import {
   fitCamera,
@@ -9,6 +10,8 @@ import {
   screenToCell,
   shouldShowGrid,
   u32ToRgba,
+  computeContributionPct,
+  formatPercent,
   type Camera,
   type SessionMeta,
 } from "../../../packages/sdk";
@@ -16,7 +19,6 @@ import { useCanvasData, type CanvasData } from "../lib/useCanvasData";
 import { useErProgram, erExplorerTxUrl } from "../lib/er";
 import { usePainting } from "../lib/usePainting";
 import { PalettePicker } from "./PalettePicker";
-import { PaintEnergyHud } from "./PaintEnergyHud";
 import { CommunityCard } from "./CommunityCard";
 import { useContribution } from "../lib/useContribution";
 import { ShareGame } from "./ShareGame";
@@ -70,6 +72,7 @@ export function PixlCanvas({
   sessionSecret = null,
   shareable = false,
   readOnly = false,
+  chrome = null,
 }: {
   seasonAddress: PublicKey | null;
   // Painting props — omitted for read-only historical views (SeasonBrowser).
@@ -80,6 +83,8 @@ export function PixlCanvas({
   shareable?: boolean;
   // Public spectator view: strip all painting chrome and never allow paints.
   readOnly?: boolean;
+  // Slot rendered in the floating top-right bar (wallet control, admin link).
+  chrome?: ReactNode;
 }) {
   const { data, loading, error, refetch } = useCanvasData(seasonAddress);
   const erProgram = useErProgram(sessionSecret);
@@ -92,8 +97,6 @@ export function PixlCanvas({
     drainDirty,
     colorAt,
     energy,
-    maxEnergy,
-    energyState,
     recentTxs,
   } = usePainting({ erProgram, data, wallet, seasonAddress, session });
 
@@ -293,211 +296,264 @@ export function PixlCanvas({
     );
   }
 
-  return (
-    <div className="pixl-play">
-     <div className="pixl-main">
-      {data && (
-        <header className="season-head">
-          <div className="season-head__ident">
-            <span className="season-head__eyebrow">
-              SEASON<span className="season-head__num"> · #{data.seasonId}</span>
-            </span>
-            <h2 className="season-head__title" title={data.title}>
-              {data.title || "Untitled season"}
-            </h2>
-            {seasonAddress && (
-              <CopyKey
-                value={seasonAddress.toBase58()}
-                label="Season address"
-              />
-            )}
+  // The interactive canvas surface + live paint cursor — shared by both the
+  // embedded read-only view and the full-bleed play stage.
+  const canvasBoard = (
+    <div
+      ref={wrapRef}
+      className="canvas-viewport"
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={() => {
+        endDrag();
+        setHover(null);
+      }}
+    >
+      <canvas ref={canvasRef} className="canvas-surface" />
+      {paintable && hover && data && (() => {
+        const { scale, offsetX, offsetY } = cameraRef.current;
+        const size = Math.max(1, scale);
+        const swatch = data.palette[selectedColor];
+        const rgba = swatch != null ? u32ToRgba(swatch) : null;
+        const out = energy === 0;
+        return (
+          <div
+            className="paint-cursor"
+            data-empty={out || undefined}
+            style={{
+              left: Math.round(offsetX + hover.x * scale),
+              top: Math.round(offsetY + hover.y * scale),
+              width: size,
+              height: size,
+              background: rgba
+                ? `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a / 255})`
+                : undefined,
+            }}
+          />
+        );
+      })()}
+      {loading && <span className="canvas-badge">syncing…</span>}
+    </div>
+  );
+
+  const zoomTools = (
+    <div className="stage-tools">
+      <span className="canvas-coord">
+        {hover ? `${hover.x}, ${hover.y}` : "—"}
+      </span>
+      {data && <span className="canvas-dims">{data.width}×{data.height}</span>}
+      {data?.frozen && <span className="canvas-flag">frozen</span>}
+      <span className="stage-tools__zoom">
+        <button
+          className="canvas-btn"
+          title="Zoom out"
+          onClick={() => zoomButton(1 / BUTTON_ZOOM_STEP)}
+        >
+          −
+        </button>
+        <span className="canvas-bar__level">
+          {Math.round(zoomLabel * 100) / 100}×
+        </span>
+        <button
+          className="canvas-btn"
+          title="Zoom in"
+          onClick={() => zoomButton(BUTTON_ZOOM_STEP)}
+        >
+          +
+        </button>
+        <button className="canvas-btn" title="Fit to screen" onClick={resetView}>
+          Fit
+        </button>
+      </span>
+    </div>
+  );
+
+  // Embedded historical view (SeasonBrowser): keep the compact boxed layout.
+  if (readOnly) {
+    return (
+      <div className="pixl-play pixl-play--embed">
+        <div className="pixl-main">
+          {data && (
+            <header className="season-head">
+              <div className="season-head__ident">
+                <span className="season-head__eyebrow">
+                  SEASON
+                  <span className="season-head__num"> · #{data.seasonId}</span>
+                </span>
+                <h2 className="season-head__title" title={data.title}>
+                  {data.title || "Untitled season"}
+                </h2>
+                {seasonAddress && (
+                  <CopyKey
+                    value={seasonAddress.toBase58()}
+                    label="Season address"
+                  />
+                )}
+              </div>
+              {data.description && (
+                <p className="season-head__desc">{data.description}</p>
+              )}
+            </header>
+          )}
+          <div className="canvas-stage">
+            {canvasBoard}
+            {zoomTools}
           </div>
-          {shareable && (
-            <ShareGame className="canvas-btn season-head__invite" />
+        </div>
+      </div>
+    );
+  }
+
+  // Full-bleed play stage: the canvas is the screen; every control floats over
+  // it, pxls-style. Bold move goes to the canvas — the chrome stays quiet.
+  return (
+    <div className="pixl-stage">
+      {canvasBoard}
+
+      <header className="stage-bar stage-bar--top">
+        <div className="stage-brand">
+          <span className="stage-brand__mark">Pixl</span>
+          {data && (
+            <span className="stage-brand__season">
+              <span className="stage-brand__id">#{data.seasonId}</span>
+              <span className="stage-brand__title" title={data.title}>
+                {data.title || "Untitled season"}
+              </span>
+              {seasonAddress && (
+                <CopyKey
+                  value={seasonAddress.toBase58()}
+                  label="Season address"
+                />
+              )}
+            </span>
           )}
-          {data.description && (
-            <p className="season-head__desc">{data.description}</p>
-          )}
-        </header>
-      )}
-      <div className="canvas-stage">
-      <div
-        ref={wrapRef}
-        className="canvas-viewport"
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={() => {
-          endDrag();
-          setHover(null);
-        }}
-      >
-        <canvas ref={canvasRef} className="canvas-surface" />
-        {paintable && hover && data && (() => {
-          const { scale, offsetX, offsetY } = cameraRef.current;
-          const size = Math.max(1, scale);
-          const swatch = data.palette[selectedColor];
-          const rgba = swatch != null ? u32ToRgba(swatch) : null;
-          const out = energy === 0;
-          return (
-            <div
-              className="paint-cursor"
-              data-empty={out || undefined}
-              style={{
-                left: Math.round(offsetX + hover.x * scale),
-                top: Math.round(offsetY + hover.y * scale),
-                width: size,
-                height: size,
-                background: rgba
-                  ? `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a / 255})`
-                  : undefined,
-              }}
-            >
-              {energy !== null && maxEnergy !== null && (
-                <span className="paint-cursor__energy">
-                  <span className="paint-cursor__bolt" aria-hidden>⚡</span>
-                  {energy}/{maxEnergy}
+        </div>
+        <div className="stage-actions">
+          {shareable && <ShareGame className="canvas-btn" />}
+          {chrome}
+        </div>
+      </header>
+
+      <div className="stage-hud">
+        {wallet && (
+          <details className="hud-panel">
+            <summary className="hud-panel__summary">
+              <span className="hud-panel__label">Community</span>
+              {contribution && (
+                <span className="hud-panel__meta">
+                  {contribution.rank !== null ? `#${contribution.rank}` : "—"}
+                  <span className="hud-panel__meta-accent">
+                    {formatPercent(
+                      computeContributionPct(
+                        contribution.yourPixels,
+                        contribution.communityPixels
+                      )
+                    )}
+                  </span>
                 </span>
               )}
-            </div>
-          );
-        })()}
-        {loading && <span className="canvas-badge">syncing…</span>}
-      </div>
-
-      {data && !readOnly && (
-        <PalettePicker
-          palette={data.palette}
-          selected={selectedColor}
-          onSelect={setSelectedColor}
-          disabled={!paintable}
-        />
-      )}
-
-      <div className="canvas-bar">
-        <div className="canvas-bar__meta">
-          <span className="canvas-coord">
-            {hover ? `${hover.x}, ${hover.y}` : "—"}
-          </span>
-          {data && <span className="canvas-dims">{data.width}×{data.height}</span>}
-          {data?.frozen && <span className="canvas-flag">frozen</span>}
-          {!data?.frozen && (
-            <span className="canvas-hint">
-              {paintable ? "click to paint" : "view only"}
-            </span>
-          )}
-        </div>
-
-        <div className="canvas-bar__zoom">
-          <button
-            className="canvas-btn"
-            title="Zoom out"
-            onClick={() => zoomButton(1 / BUTTON_ZOOM_STEP)}
-          >
-            −
-          </button>
-          <span className="canvas-bar__level">
-            {Math.round(zoomLabel * 100) / 100}×
-          </span>
-          <button
-            className="canvas-btn"
-            title="Zoom in"
-            onClick={() => zoomButton(BUTTON_ZOOM_STEP)}
-          >
-            +
-          </button>
-          <button className="canvas-btn" title="Fit to screen" onClick={resetView}>
-            Fit
-          </button>
-        </div>
-      </div>
-
-      {paintError && <p className="canvas-error">{paintError}</p>}
-      </div>
-     </div>
-
-      {!readOnly && (
-      <aside className="pixl-rail">
-        {paintable && (
-          <PaintEnergyHud energy={energyState} session={session} />
+              <span className="hud-panel__chevron" aria-hidden />
+            </summary>
+            <CommunityCard
+              contribution={contribution}
+              season={data?.season ?? null}
+            />
+          </details>
         )}
-        {wallet && (
-          <CommunityCard
-            contribution={contribution}
-            season={data?.season ?? null}
-          />
-        )}
-        <div className="tx-feed">
+
+        <details className="hud-panel">
+          <summary className="hud-panel__summary">
+            <span className="hud-panel__label">Activity</span>
+            <span className="hud-panel__chevron" aria-hidden />
+          </summary>
           {recentTxs.length === 0 ? (
             <p className="tx-feed__empty">
               Paint a pixel — signatures land here as they confirm on the rollup.
             </p>
           ) : (
-          <ul className="tx-feed__list">
-            {recentTxs.map((tx) => {
-              const swatch = data?.palette[tx.colorIndex];
-              const rgba = swatch != null ? u32ToRgba(swatch) : null;
-              return (
-                <li
-                  className="tx-row"
-                  data-status={tx.status}
-                  data-mine={tx.mine}
-                  key={tx.id}
-                >
-                  <span
-                    className="tx-row__swatch"
-                    style={
-                      rgba
-                        ? {
-                            background: `rgba(${rgba.r},${rgba.g},${rgba.b},${
-                              rgba.a / 255
-                            })`,
-                          }
-                        : undefined
-                    }
-                    aria-hidden
-                  />
-                  <span className="tx-row__coord">
-                    x{tx.x} y{tx.y}
-                  </span>
-                  <span className="tx-row__painter" title={tx.painter}>
-                    {tx.mine
-                      ? "you"
-                      : tx.painter
-                      ? `${tx.painter.slice(0, 4)}…${tx.painter.slice(-4)}`
-                      : "—"}
-                  </span>
-                  <span className="tx-row__status">
-                    {tx.status === "pending"
-                      ? "sending…"
-                      : tx.status === "confirmed"
-                      ? "confirmed"
-                      : "failed"}
-                  </span>
-                  {tx.signature ? (
-                    <a
-                      className="tx-row__link"
-                      href={erExplorerTxUrl(tx.signature)}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={`Verify ${tx.signature} on Explorer`}
-                      aria-label="Verify on Explorer"
-                    >
-                      ↗
-                    </a>
-                  ) : (
-                    <span className="tx-row__link tx-row__link--muted" aria-hidden>
-                      ·
+            <ul className="tx-feed__list">
+              {recentTxs.map((tx) => {
+                const swatch = data?.palette[tx.colorIndex];
+                const rgba = swatch != null ? u32ToRgba(swatch) : null;
+                return (
+                  <li
+                    className="tx-row"
+                    data-status={tx.status}
+                    data-mine={tx.mine}
+                    key={tx.id}
+                  >
+                    <span
+                      className="tx-row__swatch"
+                      style={
+                        rgba
+                          ? {
+                              background: `rgba(${rgba.r},${rgba.g},${rgba.b},${
+                                rgba.a / 255
+                              })`,
+                            }
+                          : undefined
+                      }
+                      aria-hidden
+                    />
+                    <span className="tx-row__coord">
+                      x{tx.x} y{tx.y}
                     </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                    <span className="tx-row__painter" title={tx.painter}>
+                      {tx.mine
+                        ? "you"
+                        : tx.painter
+                        ? `${tx.painter.slice(0, 4)}…${tx.painter.slice(-4)}`
+                        : "—"}
+                    </span>
+                    <span className="tx-row__status">
+                      {tx.status === "pending"
+                        ? "sending…"
+                        : tx.status === "confirmed"
+                        ? "confirmed"
+                        : "failed"}
+                    </span>
+                    {tx.signature ? (
+                      <a
+                        className="tx-row__link"
+                        href={erExplorerTxUrl(tx.signature)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Verify ${tx.signature} on Explorer`}
+                        aria-label="Verify on Explorer"
+                      >
+                        ↗
+                      </a>
+                    ) : (
+                      <span
+                        className="tx-row__link tx-row__link--muted"
+                        aria-hidden
+                      >
+                        ·
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
+        </details>
+      </div>
+
+      {data && (
+        <div className="stage-dock">
+          <PalettePicker
+            palette={data.palette}
+            selected={selectedColor}
+            onSelect={setSelectedColor}
+            disabled={!paintable}
+          />
         </div>
-      </aside>
       )}
+
+      {zoomTools}
+
+      {paintError && <p className="canvas-error stage-error">{paintError}</p>}
     </div>
   );
 }

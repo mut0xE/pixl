@@ -5,7 +5,6 @@ import type { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useAdmin } from "../lib/useAdmin";
 import { WalletControl } from "./WalletControl";
-import { HomeButton } from "./HomeButton";
 import { deriveSessionKeypair } from "../../../packages/sdk";
 import { usePixlProgram } from "../lib/program";
 import { useBootstrap } from "../lib/useBootstrap";
@@ -16,7 +15,7 @@ import { PixlCanvas } from "./PixlCanvas";
 import { SeasonBrowser } from "./SeasonBrowser";
 
 export function BootstrapPanel() {
-  const { status, refetch, seasonAddress, session, setSession } =
+  const { status, refetch, seasonAddress, session, setSession, error } =
     useBootstrap();
   const program = usePixlProgram();
   const { connection } = useConnection();
@@ -37,6 +36,30 @@ export function BootstrapPanel() {
       derived.publicKey.toBase58() === session.sessionSigner ? derived : null;
   }, [wallet.publicKey?.toBase58(), session?.sessionSigner, session?.nonce]);
 
+  // Ready: hand the whole viewport to the canvas. The wordmark, wallet control
+  // and admin link ride along as floating chrome instead of a boxed header.
+  if (status === "ready") {
+    return (
+      <PixlCanvas
+        seasonAddress={seasonAddress}
+        wallet={wallet.publicKey ?? null}
+        session={session}
+        sessionSecret={sessionSecretRef.current}
+        shareable
+        chrome={
+          <>
+            {isAuthority && (
+              <Link href="/admin" className="header-link">
+                ADMIN
+              </Link>
+            )}
+            <WalletControl />
+          </>
+        }
+      />
+    );
+  }
+
   return (
     <section className="bootstrap-panel" data-status={status}>
       <header
@@ -45,7 +68,6 @@ export function BootstrapPanel() {
       >
         <h1>Pixl</h1>
         <div className="bootstrap-panel__nav">
-          <HomeButton />
           {isAuthority && (
             <Link href="/admin" className="header-link">
               ADMIN
@@ -78,11 +100,27 @@ export function BootstrapPanel() {
         {(status === "connecting" ||
           status === "loading_game" ||
           status === "loading_player" ||
-          status === "loading_profile") && (
-          <p className="bootstrap-panel__hint">
-            <span className="spinner" aria-hidden /> Loading…
-          </p>
-        )}
+          status === "loading_profile") &&
+          (error ? (
+            <p className="bootstrap-panel__hint bootstrap-panel__hint--error">
+              Couldn't reach the network. {error}
+              <button
+                type="button"
+                className="bootstrap-panel__retry"
+                onClick={() => refetch()}
+              >
+                Retry
+              </button>
+            </p>
+          ) : (
+            <div
+              className="loading-bar"
+              role="progressbar"
+              aria-label={status.replace(/_/g, " ")}
+            >
+              <span className="loading-bar__fill" />
+            </div>
+          ))}
 
         {status === "no_active_season" && <SeasonBrowser />}
 
@@ -157,16 +195,6 @@ export function BootstrapPanel() {
               onDone={refetch}
             />
           )}
-
-        {status === "ready" && (
-          <PixlCanvas
-            seasonAddress={seasonAddress}
-            wallet={wallet.publicKey ?? null}
-            session={session}
-            sessionSecret={sessionSecretRef.current}
-            shareable
-          />
-        )}
       </div>
     </section>
   );

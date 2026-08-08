@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { LandingPage } from "./LandingPage";
 import { BootstrapPanel } from "./BootstrapPanel";
 
@@ -25,6 +26,22 @@ export function HomeView() {
     }
     setEntered(true);
   };
+
+  // Disconnecting the wallet is a "leaving" gesture, so return to the landing
+  // hero rather than stranding the player on the bare disconnected panel. Only
+  // fires on a genuine connected → disconnected transition, so an invited player
+  // who never connected isn't bounced away from the join flow.
+  const { connected } = useWallet();
+  const wasConnected = useRef(false);
+  useEffect(() => {
+    if (connected) {
+      wasConnected.current = true;
+    } else if (wasConnected.current) {
+      wasConnected.current = false;
+      window.sessionStorage.removeItem(ENTERED_KEY);
+      setEntered(false);
+    }
+  }, [connected]);
   if (entered === null) return <main className="app-boot" aria-busy />;
   if (!entered) return <LandingPage onEnter={enter} />;
   return (
