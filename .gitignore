@@ -9,6 +9,5 @@ node_modules
 test-ledger
 .yarn
 docs
-README.md
 .claude
 .superpowers
