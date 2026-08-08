@@ -112,6 +112,7 @@ function Converter({ address }: { address: string }) {
     <ImageConverter
       canvasWidth={canvas.width}
       canvasHeight={canvas.height}
+      canvasPixels={canvas.pixels}
       palette={canvas.palette}
       seasonId={canvas.seasonId}
     />

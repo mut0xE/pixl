@@ -3,17 +3,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   convertImageToArtwork,
   deriveHeight,
+  u32ToRgba,
   type SourceImage,
 } from "../../../../packages/sdk";
 
 // Admin tool: decode an uploaded image and convert it into a season Artwork
 // (palette-mapped pixel grid), bounded by the season's live canvas. Exports the
 // Artwork as JSON. Pure conversion lives in the SDK; this component only handles
-// decoding, controls, previews, and export.
+// decoding, controls, previews, placement, and export.
 
 const MAX_PREVIEW_PX = 320; // css size cap for the scaled-up previews
+const MAX_STAGE_PX = 440; // css size cap for the canvas placement stage
+const SVG_RASTER_PX = 512; // target raster size for the largest SVG dimension
 
-/** Decode a File into raw RGBA via an offscreen canvas. */
+function isSvgFile(file: File): boolean {
+  return file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+}
+
+/** Decode a File (PNG/JPEG/WebP/SVG) into raw RGBA via an offscreen canvas. */
 async function decodeImage(file: File): Promise<SourceImage> {
   const url = URL.createObjectURL(file);
   try {
@@ -23,14 +30,32 @@ async function decodeImage(file: File): Promise<SourceImage> {
       el.onerror = () => reject(new Error("Could not decode image"));
       el.src = url;
     });
+
+    // Raster formats keep their native pixels. SVG is resolution-independent, so
+    // rasterize it at a fixed size (scaled from its intrinsic aspect ratio, with
+    // a 1:1 fallback when the SVG declares no size) for a crisp source.
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (isSvgFile(file)) {
+      if (!w || !h) {
+        w = SVG_RASTER_PX;
+        h = SVG_RASTER_PX;
+      } else {
+        const s = SVG_RASTER_PX / Math.max(w, h);
+        w = Math.max(1, Math.round(w * s));
+        h = Math.max(1, Math.round(h * s));
+      }
+    }
+    if (!w || !h) throw new Error("Image has zero dimensions");
+
     const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context unavailable");
-    ctx.drawImage(img, 0, 0);
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    return { width: canvas.width, height: canvas.height, data };
+    ctx.drawImage(img, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    return { width: w, height: h, data };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -39,11 +64,14 @@ async function decodeImage(file: File): Promise<SourceImage> {
 export function ImageConverter({
   canvasWidth,
   canvasHeight,
+  canvasPixels,
   palette,
   seasonId,
 }: {
   canvasWidth: number;
   canvasHeight: number;
+  /** Current canvas cells (row-major palette indices) for the placement preview. */
+  canvasPixels: number[];
   palette: number[];
   seasonId: number;
 }) {
@@ -62,6 +90,10 @@ export function ImageConverter({
   const [alphaThreshold, setAlphaThreshold] = useState(128);
 
   const previewRef = useRef<HTMLCanvasElement>(null);
+  const layoutRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  const paletteRgba = useMemo(() => palette.map(u32ToRgba), [palette]);
 
   // Keep the original object URL alive for the "before" preview.
   useEffect(() => {
@@ -144,6 +176,67 @@ export function ImageConverter({
     ctx.putImageData(img, 0, 0);
   }, [result]);
 
+  // Render the full season canvas (existing pixels) with the converted artwork
+  // composited in at its placement, so the admin sees exactly where it lands.
+  useEffect(() => {
+    const canvas = layoutRef.current;
+    if (!canvas) return;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const buf = new Uint8ClampedArray(canvasWidth * canvasHeight * 4);
+    // Base layer: current canvas cells.
+    for (let i = 0; i < canvasWidth * canvasHeight; i++) {
+      const c = paletteRgba[canvasPixels[i]];
+      if (!c) continue; // out-of-range / unset -> leave transparent
+      buf[i * 4] = c.r;
+      buf[i * 4 + 1] = c.g;
+      buf[i * 4 + 2] = c.b;
+      buf[i * 4 + 3] = 255;
+    }
+    // Overlay: the artwork's non-transparent cells at (x, y).
+    if (result) {
+      const { artwork } = result;
+      for (let row = 0; row < artwork.height; row++) {
+        for (let col = 0; col < artwork.width; col++) {
+          const p = artwork.pixels[row * artwork.width + col];
+          if (p === artwork.transparentIndex) continue;
+          const cx = artwork.x + col;
+          const cy = artwork.y + row;
+          if (cx < 0 || cy < 0 || cx >= canvasWidth || cy >= canvasHeight)
+            continue;
+          const c = paletteRgba[p];
+          if (!c) continue;
+          const di = (cy * canvasWidth + cx) * 4;
+          buf[di] = c.r;
+          buf[di + 1] = c.g;
+          buf[di + 2] = c.b;
+          buf[di + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(new ImageData(buf, canvasWidth, canvasHeight), 0, 0);
+  }, [canvasPixels, paletteRgba, canvasWidth, canvasHeight, result]);
+
+  // Click the stage to place the artwork centered on the clicked cell.
+  function placeFromClick(e: React.MouseEvent<HTMLDivElement>) {
+    const stage = stageRef.current;
+    if (!stage || !result) return;
+    const rect = stage.getBoundingClientRect();
+    const cellX = Math.floor(
+      ((e.clientX - rect.left) / rect.width) * canvasWidth
+    );
+    const cellY = Math.floor(
+      ((e.clientY - rect.top) / rect.height) * canvasHeight
+    );
+    const aw = result.artwork.width;
+    const ah = result.artwork.height;
+    setX(Math.max(0, Math.min(canvasWidth - aw, cellX - Math.floor(aw / 2))));
+    setY(Math.max(0, Math.min(canvasHeight - ah, cellY - Math.floor(ah / 2))));
+  }
+
   function exportJson() {
     if (!result) return;
     const json = JSON.stringify(result.artwork, null, 2);
@@ -166,21 +259,26 @@ export function ImageConverter({
     return { width: w * scale, height: h * scale };
   };
 
+  const stageScale = Math.max(
+    1,
+    Math.floor(MAX_STAGE_PX / Math.max(canvasWidth, canvasHeight))
+  );
+
   return (
     <section className="admin-card">
       <h3 className="admin-card__heading">IMAGE → ARTWORK</h3>
       <p className="admin-card__note">
-        Convert a PNG, transparent PNG, or JPG into an Artwork bounded by this
-        season&apos;s {canvasWidth}×{canvasHeight} canvas and {palette.length}
-        -color palette. Contain mode keeps the whole image visible; transparent
-        pixels stay untouched.
+        Convert a PNG, transparent PNG, JPG, WebP, or SVG into an Artwork
+        bounded by this season&apos;s {canvasWidth}×{canvasHeight} canvas and{" "}
+        {palette.length}-color palette. Contain mode keeps the whole image
+        visible; transparent pixels stay untouched.
       </p>
 
       <label className="admin-field admin-field--wide">
         <span>Source image</span>
         <input
           type="file"
-          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
           onChange={(e) => void onFile(e.target.files?.[0])}
         />
       </label>
@@ -231,7 +329,17 @@ export function ImageConverter({
                 min={0}
                 max={Math.max(0, canvasWidth - result.artwork.width)}
                 value={x}
-                onChange={(e) => setX(Math.max(0, Number(e.target.value)))}
+                onChange={(e) =>
+                  setX(
+                    Math.max(
+                      0,
+                      Math.min(
+                        canvasWidth - result.artwork.width,
+                        Number(e.target.value)
+                      )
+                    )
+                  )
+                }
               />
             </label>
             <label className="admin-field">
@@ -241,7 +349,17 @@ export function ImageConverter({
                 min={0}
                 max={Math.max(0, canvasHeight - result.artwork.height)}
                 value={y}
-                onChange={(e) => setY(Math.max(0, Number(e.target.value)))}
+                onChange={(e) =>
+                  setY(
+                    Math.max(
+                      0,
+                      Math.min(
+                        canvasHeight - result.artwork.height,
+                        Number(e.target.value)
+                      )
+                    )
+                  )
+                }
               />
             </label>
             <label className="admin-field">
@@ -297,6 +415,39 @@ export function ImageConverter({
             </figure>
           </div>
 
+          <figure className="img-conv__fig">
+            <figcaption>
+              Placement on canvas — click to position ({result.artwork.x},{" "}
+              {result.artwork.y})
+            </figcaption>
+            <div
+              ref={stageRef}
+              className="img-conv__stage"
+              style={{
+                width: canvasWidth * stageScale,
+                height: canvasHeight * stageScale,
+              }}
+              onClick={placeFromClick}
+              role="button"
+              tabIndex={0}
+              aria-label="Canvas placement — click to position the artwork"
+            >
+              <canvas
+                ref={layoutRef}
+                className="img-conv__pixel img-conv__layoutcanvas"
+              />
+              <div
+                className="img-conv__bbox"
+                style={{
+                  left: `${(result.artwork.x / canvasWidth) * 100}%`,
+                  top: `${(result.artwork.y / canvasHeight) * 100}%`,
+                  width: `${(result.artwork.width / canvasWidth) * 100}%`,
+                  height: `${(result.artwork.height / canvasHeight) * 100}%`,
+                }}
+              />
+            </div>
+          </figure>
+
           <dl className="img-conv__stats">
             <dt>Target size</dt>
             <dd>
@@ -306,7 +457,8 @@ export function ImageConverter({
             <dd>{result.targetPixelCount.toLocaleString()}</dd>
             <dt>Placement</dt>
             <dd>
-              ({result.artwork.x}, {result.artwork.y})
+              ({result.artwork.x}, {result.artwork.y}) — top-left cell; X grows
+              right, Y grows down
             </dd>
           </dl>
 
