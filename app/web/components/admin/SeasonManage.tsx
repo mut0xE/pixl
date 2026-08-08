@@ -3,15 +3,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
-import {
-  u32ToHex,
-  type SeasonSummary,
-} from "../../../../packages/sdk";
+import { u32ToHex, type SeasonSummary } from "../../../../packages/sdk";
 import { useSeasonSummary, useSeasonDetail } from "../../lib/useSeasons";
+import { useCanvasData } from "../../lib/useCanvasData";
 import { CopyKey } from "../CopyKey";
 import { AdminShell } from "./AdminShell";
 import { SeasonLifecyclePanel } from "./SeasonLifecyclePanel";
 import { ExportSnapshot } from "./ExportSnapshot";
+import { ImageConverter } from "./ImageConverter";
 
 function shortKey(k: string): string {
   return `${k.slice(0, 4)}…${k.slice(-4)}`;
@@ -25,7 +24,7 @@ function fmt(unix: number): string {
   });
 }
 
-type Tab = "details" | "lifecycle";
+type Tab = "details" | "lifecycle" | "artwork";
 
 // Per-season workspace: a Details tab (contributions) and a Lifecycle tab.
 export function SeasonManage() {
@@ -42,13 +41,7 @@ export function SeasonManage() {
   );
 }
 
-function Inner({
-  game,
-  address,
-}: {
-  game: PublicKey;
-  address: string | null;
-}) {
+function Inner({ game, address }: { game: PublicKey; address: string | null }) {
   const { season, loading, refetch } = useSeasonSummary(address);
   const [tab, setTab] = useState<Tab>("details");
 
@@ -95,7 +88,9 @@ function Inner({
         <button
           role="tab"
           aria-selected={tab === "details"}
-          className={`admin-tab${tab === "details" ? " admin-tab--active" : ""}`}
+          className={`admin-tab${
+            tab === "details" ? " admin-tab--active" : ""
+          }`}
           onClick={() => setTab("details")}
         >
           Details
@@ -103,16 +98,27 @@ function Inner({
         <button
           role="tab"
           aria-selected={tab === "lifecycle"}
-          className={`admin-tab${tab === "lifecycle" ? " admin-tab--active" : ""}`}
+          className={`admin-tab${
+            tab === "lifecycle" ? " admin-tab--active" : ""
+          }`}
           onClick={() => setTab("lifecycle")}
         >
           Lifecycle
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === "artwork"}
+          className={`admin-tab${
+            tab === "artwork" ? " admin-tab--active" : ""
+          }`}
+          onClick={() => setTab("artwork")}
+        >
+          Artwork
+        </button>
       </div>
 
-      {tab === "details" ? (
-        <DetailsTab season={season} />
-      ) : (
+      {tab === "details" && <DetailsTab season={season} />}
+      {tab === "lifecycle" && (
         <>
           <SeasonLifecyclePanel
             game={game}
@@ -122,7 +128,34 @@ function Inner({
           <ExportSnapshot season={season} />
         </>
       )}
+      {tab === "artwork" && <ArtworkTab season={season} />}
     </>
+  );
+}
+
+function ArtworkTab({ season }: { season: SeasonSummary }) {
+  const { data: canvas, loading } = useCanvasData(
+    new PublicKey(season.address)
+  );
+
+  if (!canvas) {
+    return (
+      <section className="admin-card" aria-busy={loading}>
+        <h3 className="admin-card__heading">IMAGE → ARTWORK</h3>
+        <p className="admin-card__note">
+          {loading ? "Reading canvas layout…" : "Canvas unavailable."}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <ImageConverter
+      canvasWidth={canvas.width}
+      canvasHeight={canvas.height}
+      palette={canvas.palette}
+      seasonId={canvas.seasonId}
+    />
   );
 }
 

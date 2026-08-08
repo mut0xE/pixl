@@ -545,6 +545,37 @@ a:focus-visible {
   border-color: var(--warn, #ff5470);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
 }
+.paint-cursor__energy {
+  position: absolute;
+  left: 100%;
+  bottom: -4px;
+  transform: translateX(-4px);
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 5px;
+  height: 15px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  backdrop-filter: blur(2px);
+}
+.paint-cursor[data-empty] .paint-cursor__energy {
+  color: #fff;
+  background: var(--warn, #ff5470);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.paint-cursor__bolt {
+  font-size: 8px;
+  opacity: 0.85;
+}
 .canvas-badge {
   position: absolute;
   top: 8px;
@@ -1869,6 +1900,63 @@ a:focus-visible {
   flex-direction: column;
   gap: 14px;
 }
+
+/* --- Image → Artwork converter --- */
+.img-conv__controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.img-conv__previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+.img-conv__fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.img-conv__fig figcaption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+.img-conv__original,
+.img-conv__pixel {
+  max-width: 320px;
+  border: 1px solid var(--grid);
+  background: repeating-conic-gradient(#1a1a1a 0% 25%, #111 0% 50%) 0 / 16px
+    16px;
+}
+.img-conv__pixel {
+  image-rendering: pixelated;
+}
+.img-conv__original {
+  height: auto;
+}
+.img-conv__stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 0;
+}
+.img-conv__stats dt {
+  color: var(--paper-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+.img-conv__stats dd {
+  margin: 0;
+  color: var(--paper);
+}
 .admin-card::before {
   content: "";
   position: absolute;
@@ -3107,9 +3195,8 @@ a:focus-visible {
           any moment — reading as players painting live, not a blink. */
   .landing-canvas__cell[data-lit="true"] {
     opacity: 0;
-    animation:
-      cell-paint 420ms cubic-bezier(0.34, 1.56, 0.64, 1) var(--paint-delay)
-        forwards,
+    animation: cell-paint 420ms cubic-bezier(0.34, 1.56, 0.64, 1)
+        var(--paint-delay) forwards,
       cell-repaint 11s ease-in-out var(--live-delay) infinite;
   }
 }
@@ -3332,7 +3419,8 @@ a:focus-visible {
   [data-reveal] {
     opacity: 0;
     transform: translateY(16px);
-    transition: opacity 520ms ease, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 520ms ease,
+      transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   [data-reveal].is-visible {
