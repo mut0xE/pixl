@@ -1,4 +1,4 @@
-const CACHE_NAME = "pixl-shell-v1";
+const CACHE_NAME = "pixl-shell-v2";
 const ASSETS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -28,19 +28,24 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match("/"))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== "basic") {
-          return response;
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === "basic") {
+          const copy = response.clone();
+          void caches
+            .open(CACHE_NAME)
+            .then((cache) => cache.put(event.request, copy));
         }
-        const copy = response.clone();
-        void caches
-          .open(CACHE_NAME)
-          .then((cache) => cache.put(event.request, copy));
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });
